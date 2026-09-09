@@ -2,6 +2,9 @@ name: Android ARM64 test
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -19,9 +22,10 @@ jobs:
         working-directory: app
 
     steps:
-      - name: Checkout
+      - name: Checkout custom branch
         uses: actions/checkout@v5
         with:
+          ref: custom
           fetch-depth: 0
 
       - name: Java 17
