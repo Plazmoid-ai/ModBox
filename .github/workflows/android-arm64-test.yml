@@ -1,0 +1,87 @@
+name: Android ARM64 test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-arm64-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-arm64:
+    name: Build ARM64 APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Fetch sing-box-lx core (libbox.aar)
+        working-directory: .
+        run: ./scripts/fetch-libbox.sh
+
+      - name: Flutter version pin
+        id: flutter_pin
+        run: echo "version=$(tr -d '[:space:]' < android/flutter.version)" >> "$GITHUB_OUTPUT"
+
+      - name: Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ steps.flutter_pin.outputs.version }}
+          cache: true
+
+      - name: Inject test version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
+          if [ -z "$VERSION" ]; then
+            VERSION="$(grep -E '^version:' pubspec.yaml | head -1 | sed -E 's/^version:[[:space:]]*//' | cut -d+ -f1)"
+          fi
+          VERSION="${VERSION#v}"
+          CODE=$(../scripts/version-code.sh "$VERSION" arm64-v8a)
+          sed -i.bak -E "s/^version: .*/version: $VERSION+$CODE/" pubspec.yaml
+          rm -f pubspec.yaml.bak
+          echo "VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$CODE" >> "$GITHUB_ENV"
+          echo "Building test version: $VERSION+$CODE"
+
+      - name: Dependencies
+        run: flutter pub get
+
+      - name: Build ARM64 APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          LXBOX_ABI_FILTER=arm64-v8a \
+            flutter build apk --release \
+              --target-platform android-arm64 \
+              --build-name "$VERSION_NAME" \
+              --build-number "$BUILD_NUMBER"
+
+          OUT="build/app/outputs/flutter-apk/app-release.apk"
+          cp "$OUT" "build/app/outputs/flutter-apk/ModBox-arm64-v8a-test.apk"
+          ls -lh "build/app/outputs/flutter-apk/ModBox-arm64-v8a-test.apk"
+
+      - name: Upload ARM64 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ModBox-arm64-v8a-test
+          path: app/build/app/outputs/flutter-apk/ModBox-arm64-v8a-test.apk
+          if-no-files-found: error
+          retention-days: 7
