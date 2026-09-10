@@ -76,7 +76,7 @@ jobs:
           else
             # Manual/dev builds: use the semantic version from pubspec.yaml as
             # the base when this checkout has no real vX.Y.Z tag available.
-            # This avoids falling back to an invalid 0.0.0-dev.<sha> version.
+            # Use a numeric git commit count so Android accepts the -dev.N form.
             TAG="$(git tag --list 'v*' --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)"
             if [ -n "$TAG" ]; then
               SINCE="$(git rev-list "${TAG}..HEAD" --count)"
@@ -84,8 +84,8 @@ jobs:
             else
               BASE_VERSION="$(grep -E '^version:[[:space:]]*[0-9]+\.[0-9]+\.[0-9]+' app/pubspec.yaml | head -1 | sed -E 's/^version:[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
               if [[ "$BASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                SHORT_SHA="$(git rev-parse --short=7 HEAD)"
-                VERSION="${BASE_VERSION}-dev.${SHORT_SHA}"
+                DEV_NUMBER="$(git rev-list --count HEAD)"
+                VERSION="${BASE_VERSION}-dev.${DEV_NUMBER}"
               else
                 echo "::error::Could not determine a valid base version from git tags or app/pubspec.yaml." >&2
                 exit 1
