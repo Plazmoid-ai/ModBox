@@ -74,13 +74,16 @@ jobs:
             echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
             echo "is_release=true" >> "$GITHUB_OUTPUT"
           else
-            TAG="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
+            # Manual/dev builds must ignore generated dev tags such as
+            # v0.0.0-dev-<sha> and anchor their version to the latest real
+            # semantic release tag, if one exists.
+            TAG="$(git tag --list 'v*' --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)"
             if [ -n "$TAG" ]; then
               SINCE="$(git rev-list "${TAG}..HEAD" --count)"
               VERSION="${TAG#v}-dev.${SINCE}"
             else
               SHORT_SHA="$(git rev-parse --short=7 HEAD)"
-              VERSION="dev-${SHORT_SHA}"
+              VERSION="0.0.0-dev.${SHORT_SHA}"
             fi
             echo "version=$VERSION" >> "$GITHUB_OUTPUT"
             echo "tag=" >> "$GITHUB_OUTPUT"
@@ -192,19 +195,19 @@ jobs:
           flutter-version: ${{ steps.flutter_pin.outputs.version }}
           cache: true
 
-      - name: Inject release version from tag
+      - name: Inject build version
         shell: bash
         run: |
           set -euo pipefail
           VERSION="${{ needs.meta.outputs.version }}"
           VERSION="${VERSION#v}"
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-            VERSION="0.0.0-${VERSION}"
-            CODE_VERSION="0.0.0"
+          if [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-dev\.[0-9]+)?$ ]]; then
+            CODE_VERSION="${BASH_REMATCH[1]}"
           else
-            CODE_VERSION="$VERSION"
+            echo "::error::Computed version '$VERSION' is not a supported X.Y.Z or X.Y.Z-dev.N version." >&2
+            exit 1
           fi
-          BUILD_NUMBER=$(../scripts/version-code.sh "$CODE_VERSION" universal)
+          BUILD_NUMBER=$(../scripts/version-code.sh "$CODE_VERSION" arm64-v8a)
           sed -i.bak -E "s/^version: .*/version: $VERSION+$BUILD_NUMBER/" pubspec.yaml
           rm -f pubspec.yaml.bak
           {
@@ -244,7 +247,7 @@ jobs:
           set -euo pipefail
           OUT=build/app/outputs/flutter-apk
           CODE=$(../scripts/version-code.sh "$CODE_VERSION" arm64-v8a)
-          echo "::group::Build arm64-v8a (versionCode=$CODE)"
+          echo "::group::Build arm64-v8a (versionName=$VERSION_NAME, versionCode=$CODE)"
           LXBOX_ABI_FILTER=arm64-v8a \
             flutter build apk --release \
               --target-platform android-arm64 \
@@ -262,95 +265,70 @@ jobs:
           retention-days: ${{ startsWith(github.ref, 'refs/tags/') && 1 || 30 }}
 
   release:
-    name: Create Release
+    if: startsWith(github.ref, 'refs/tags/v') ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.run_mode == 'release')
     needs: [meta, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    if: needs.meta.outputs.is_release == 'true'
     steps:
-      - name: Checkout (for release notes)
-        uses: actions/checkout@v5
-        with:
-          sparse-checkout: RELEASE_NOTES.md
-          sparse-checkout-cone-mode: false
-
-      - name: Download APK
+      - name: Download ARM64 APK
         uses: actions/download-artifact@v4
         with:
           name: android-arm64-release
-          path: release-artifacts
+          path: dist
 
-      - name: Prepare APK
+      - name: Prepare release file
+        shell: bash
         run: |
           set -euo pipefail
           VERSION="${{ needs.meta.outputs.version }}"
-          SRC=$(find release-artifacts/ -name "app-arm64-v8a-release.apk" -type f | head -1)
-          if [ -z "$SRC" ]; then
-            echo "ERROR: ARM64 APK not found!"
-            exit 1
-          fi
-          cp "$SRC" "LxBox-${VERSION}-arm64-v8a.apk"
-          ls -la LxBox-*.apk
+          VERSION="${VERSION#v}"
+          test -f dist/app-arm64-v8a-release.apk
+          mv dist/app-arm64-v8a-release.apk "dist/LxBox-${VERSION}-arm64-v8a.apk"
+          ls -lh dist/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.meta.outputs.tag }}
           name: LxBox ${{ needs.meta.outputs.version }}
-          draft: false
-          files: |
-            LxBox-${{ needs.meta.outputs.version }}-arm64-v8a.apk
-          body_path: RELEASE_NOTES.md
+          files: dist/LxBox-${{ needs.meta.outputs.version }}-arm64-v8a.apk
+          generate_release_notes: true
 
   publish-manifest:
-    name: Publish docs/latest.json
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: [meta, release]
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    if: needs.meta.outputs.is_release == 'true'
     steps:
-      - name: Checkout main
+      - name: Checkout
         uses: actions/checkout@v5
         with:
-          ref: main
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update docs/latest.json
+      - name: Publish update manifest
+        shell: bash
         env:
-          TAG: ${{ needs.meta.outputs.tag }}
           VERSION: ${{ needs.meta.outputs.version }}
+          TAG: ${{ needs.meta.outputs.tag }}
         run: |
-          mkdir -p docs
-          NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          set -euo pipefail
           BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
-          cat > docs/latest.json <<EOF
+          cat > latest.json <<EOF
           {
-            "\$schema": "https://github.com/${GITHUB_REPOSITORY}/blob/main/docs/latest.json",
-            "tag": "${TAG}",
-            "name": "L×Box ${VERSION}",
-            "published_at": "${NOW}",
-            "html_url": "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}",
-            "apk_url": "${BASE}/LxBox-${VERSION}-arm64-v8a.apk",
+            "version": "${VERSION#v}",
+            "apk_url": "${BASE}/LxBox-${VERSION#v}-arm64-v8a.apk",
             "apk_urls": {
-              "arm64-v8a": "${BASE}/LxBox-${VERSION}-arm64-v8a.apk"
+              "arm64-v8a": "${BASE}/LxBox-${VERSION#v}-arm64-v8a.apk"
             },
-            "min_supported": "1.0.0",
+            "notes_url": "https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}",
             "_comment": "Updated automatically by CI on every release tag push. ARM64-v8a APK only."
           }
           EOF
-          cat docs/latest.json
-
-      - name: Commit & push (main)
-        run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet docs/latest.json; then
-            echo "No change in docs/latest.json — skipping commit."
-            exit 0
-          fi
-          git add docs/latest.json
-          git commit -m "chore(release): update docs/latest.json → ${{ needs.meta.outputs.tag }} [skip ci]"
+          git add latest.json
+          git commit -m "chore: update latest.json for ${TAG}" || exit 0
           git push origin HEAD:main
