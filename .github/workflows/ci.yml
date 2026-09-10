@@ -74,16 +74,22 @@ jobs:
             echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
             echo "is_release=true" >> "$GITHUB_OUTPUT"
           else
-            # Manual/dev builds must ignore generated dev tags such as
-            # v0.0.0-dev-<sha> and anchor their version to the latest real
-            # semantic release tag, if one exists.
+            # Manual/dev builds: use the semantic version from pubspec.yaml as
+            # the base when this checkout has no real vX.Y.Z tag available.
+            # This avoids falling back to an invalid 0.0.0-dev.<sha> version.
             TAG="$(git tag --list 'v*' --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)"
             if [ -n "$TAG" ]; then
               SINCE="$(git rev-list "${TAG}..HEAD" --count)"
               VERSION="${TAG#v}-dev.${SINCE}"
             else
-              SHORT_SHA="$(git rev-parse --short=7 HEAD)"
-              VERSION="0.0.0-dev.${SHORT_SHA}"
+              BASE_VERSION="$(grep -E '^version:[[:space:]]*[0-9]+\.[0-9]+\.[0-9]+' app/pubspec.yaml | head -1 | sed -E 's/^version:[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
+              if [[ "$BASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                SHORT_SHA="$(git rev-parse --short=7 HEAD)"
+                VERSION="${BASE_VERSION}-dev.${SHORT_SHA}"
+              else
+                echo "::error::Could not determine a valid base version from git tags or app/pubspec.yaml." >&2
+                exit 1
+              fi
             fi
             echo "version=$VERSION" >> "$GITHUB_OUTPUT"
             echo "tag=" >> "$GITHUB_OUTPUT"
