@@ -108,4 +108,4 @@ jobs:
                   app/lib/screens/home_screen.dart
           git diff --cached --check
           git commit -m "mod: configurable Back UI behavior"
-          git push origin HEAD:main
+          git push origin HEAD:custom
