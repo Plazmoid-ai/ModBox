@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../main.dart';
 import '../../../services/l10n/locale_controller.dart';
@@ -158,6 +159,7 @@ class GeneralTab extends StatelessWidget {
           value: autoStart,
           onChanged: loaded ? onAutoStartChanged : null,
         ),
+        const KeepUiOnBackTile(),
         // §220 — снятие портретной фиксации (планшетный фидбэк). Применяется
         // сразу, без рестарта; уважает системный auto-rotate.
         SwitchListTile(
@@ -260,5 +262,53 @@ class GeneralTab extends StatelessWidget {
           : getLocalText.s("Auto · %s", detected.toUpperCase());
     }
     return region.toUpperCase();
+  }
+}
+
+
+class KeepUiOnBackTile extends StatefulWidget {
+  const KeepUiOnBackTile({super.key});
+
+  @override
+  State<KeepUiOnBackTile> createState() => _KeepUiOnBackTileState();
+}
+
+class _KeepUiOnBackTileState extends State<KeepUiOnBackTile> {
+  static const _prefsKey = 'keep_ui_on_back';
+  bool _enabled = false;
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _enabled = prefs.getBool(_prefsKey) ?? false;
+      _loaded = true;
+    });
+  }
+
+  Future<void> _setEnabled(bool value) async {
+    setState(() => _enabled = value);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefsKey, value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SwitchListTile(
+      // l10n-exempt: personal ModBox fork setting is intentionally Russian.
+      title: const Text('Сохранять интерфейс при выходе'),
+      // l10n-exempt: personal ModBox fork setting is intentionally Russian.
+      subtitle: const Text('Кнопка/жест «Назад» сворачивает приложение вместо закрытия интерфейса.'),
+      secondary: const Icon(Icons.exit_to_app),
+      value: _enabled,
+      onChanged: _loaded ? _setEnabled : null,
+    );
   }
 }

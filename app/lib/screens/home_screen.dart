@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../controllers/home_controller.dart';
 import '../controllers/subscription_controller.dart';
@@ -117,6 +119,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
   /// §107 single-flight: текущая пересборка конфига. Гейт на Start и
   /// повторные триггеры await'ят её вместо параллельного запуска второй.
   Future<void>? _rebuildInFlight;
+
+  static const _keepUiOnBackPrefsKey = 'keep_ui_on_back';
+  bool _backHandling = false;
+
 
   /// §338 — авто-применение в полёте: воронка пересобирает при включённой
   /// галке. На это окно (rebuild + reload, ~1–3с) розовая плашка подавляется —
@@ -741,9 +747,46 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
     if (mounted) setState(() {});
   }
 
+  Future<void> _handleSystemBack() async {
+    if (_backHandling) return;
+    _backHandling = true;
+    try {
+      final navigator = Navigator.of(context);
+      if (navigator.canPop()) {
+        navigator.pop();
+        return;
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      final keepUi = prefs.getBool(_keepUiOnBackPrefsKey) ?? false;
+      if (!mounted) return;
+
+      if (!keepUi) {
+        await SystemNavigator.pop();
+        return;
+      }
+
+      try {
+        await const MethodChannel('com.leadaxe.lxbox/utils')
+            .invokeMethod<bool>('moveTaskToBack');
+      } on PlatformException {
+        await SystemNavigator.pop();
+      } catch (_) {
+        await SystemNavigator.pop();
+      }
+    } finally {
+      _backHandling = false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) unawaited(_handleSystemBack());
+      },
+      child: AnimatedBuilder(
       animation: Listenable.merge([_controller, _subController]),
       builder: (context, _) {
         // Debug API `POST /action/preview-empty-state?on=true` имитирует
@@ -861,6 +904,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
           ),
         );
       },
+      ),
     );
   }
 
