@@ -2,11 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../models/dns_ref.dart';
 import '../services/ui_helpers.dart';
 import '../widgets/outbound_picker.dart';
 import 'dns_server_edit/edit_controller.dart';
 // §312 — опция пикера членов группы нужна caller'у (dns_settings_screen).
 export 'dns_server_edit/edit_controller.dart' show DnsMemberOption;
+// §435 — опция пикера endpoint у сервера tailscale (тот же caller).
+export '../services/dns/node_dns_records.dart' show TailscaleEndpointOption;
+import '../services/dns/node_dns_records.dart' show TailscaleEndpointOption;
 import 'dns_server_edit/tabs/json_tab.dart';
 import 'dns_server_edit/tabs/params_tab.dart';
 import 'dns_settings_screen/resolved_server.dart';
@@ -31,11 +35,12 @@ class DnsServerEditScreen extends StatefulWidget {
     this.outboundOptions = const [],
     this.dnsServerTags = const [],
     this.dnsMemberOptions = const [],
+    this.tailscaleEndpoints = const [],
     this.existingTags = const {},
   });
 
-  /// Ref-запись стораджа (edit) или дефолтная inline-заготовка (new).
-  final Map<String, dynamic> initialRef;
+  /// Ref-запись (edit) или дефолтная inline-заготовка (new).
+  final DnsServerRef initialRef;
 
   /// Display-модель (null = new-режим: добавление inline-сервера).
   final ResolvedServer? resolved;
@@ -52,6 +57,9 @@ class DnsServerEditScreen extends StatefulWidget {
   /// §312 — опции пикера членов DNS-группы (все серверы кроме self и
   /// fakeip/hosts; disabled помечаются).
   final List<DnsMemberOption> dnsMemberOptions;
+
+  /// §435 — узлы Tailscale для пикера `endpoint` сервера `tailscale`.
+  final List<TailscaleEndpointOption> tailscaleEndpoints;
 
   /// Существующие теги (new-режим): коллизия tag'а → confirm replace.
   final Set<String> existingTags;
@@ -74,6 +82,7 @@ class _DnsServerEditScreenState extends State<DnsServerEditScreen> {
       outboundOptions: widget.outboundOptions,
       dnsServerTags: widget.dnsServerTags,
       dnsMemberOptions: widget.dnsMemberOptions,
+      tailscaleEndpoints: widget.tailscaleEndpoints,
     );
   }
 
@@ -103,11 +112,21 @@ class _DnsServerEditScreenState extends State<DnsServerEditScreen> {
       }
       // §117 задача 4b: для форменных режимов (UDP/DoT/DoH) адрес обязателен.
       // §312: КРОМЕ группы — у неё вместо адреса участники (`isGroup`).
+      // §435: и КРОМЕ tailscale — у него вместо адреса endpoint.
       if (_ctrl.serverMode != null &&
           !_ctrl.isGroup &&
+          !_ctrl.isTailscale &&
           _ctrl.addressCtrl.text.trim().isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(getLocalText.s("Server address is required"))),
+        );
+        return;
+      }
+      // §435: у tailscale обязателен endpoint — без него сервер мёртв
+      // (санитайзер сборки выбросит его с warning), хранить нечего.
+      if (_ctrl.isTailscale && _ctrl.tailscaleEndpoint.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(getLocalText.s("Tailscale node is required"))),
         );
         return;
       }
@@ -161,11 +180,14 @@ class _DnsServerEditScreenState extends State<DnsServerEditScreen> {
   }
 
   /// §043/§117: reset inline-override обратно к canonical (template/preset) —
-  /// ref схлопывается в `{enabled, kind: <canonical>, tag}`.
+  /// ref схлопывается в template/preset-ref с тем же `enabled` и тегом.
   Future<void> _resetToCanonical() async {
     final overrides = _ctrl.overrides;
     final resolved = widget.resolved;
-    if (overrides == null || resolved == null) return;
+    // overrides — вид canonical'а: template или preset.
+    if (overrides == null || overrides == ServerKind.inline || resolved == null) {
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -186,11 +208,12 @@ class _DnsServerEditScreenState extends State<DnsServerEditScreen> {
     if (confirmed != true || !mounted) return;
     Navigator.pop(
       context,
-      DnsServerEditResult.saved({
-        'enabled': _ctrl.enabled,
-        'kind': overrides.name,
-        'tag': resolved.tag,
-      }),
+      DnsServerEditResult.saved(overrides == ServerKind.preset
+          ? DnsServerPreset(
+              enabled: _ctrl.enabled,
+              tag: resolved.tag,
+              presetId: resolved.presetId)
+          : DnsServerTemplate(enabled: _ctrl.enabled, tag: resolved.tag)),
     );
   }
 
@@ -300,12 +323,11 @@ class _SaveIconButton extends StatelessWidget {
 class DnsServerEditResult {
   const DnsServerEditResult._({this.saved, this.wasDeleted = false});
 
-  /// Новый/обновлённый ref `{enabled, kind, tag, description?, body?,
-  /// varValues?}`. Для reset-to-canonical — схлопнутый ref.
-  final Map<String, dynamic>? saved;
+  /// Новый/обновлённый ref. Для reset-to-canonical — схлопнутый ref.
+  final DnsServerRef? saved;
   final bool wasDeleted;
 
-  factory DnsServerEditResult.saved(Map<String, dynamic> ref) =>
+  factory DnsServerEditResult.saved(DnsServerRef ref) =>
       DnsServerEditResult._(saved: ref);
   factory DnsServerEditResult.deleted() =>
       const DnsServerEditResult._(wasDeleted: true);
@@ -315,13 +337,14 @@ class DnsServerEditResult {
 /// изменений.
 Future<DnsServerEditResult?> openDnsServerEditor(
   BuildContext context, {
-  required Map<String, dynamic> initialRef,
+  required DnsServerRef initialRef,
   ResolvedServer? resolved,
   Map<String, dynamic>? templateWrapper,
   String canonicalDescription = '',
   List<OutboundOption> outboundOptions = const [],
   List<String> dnsServerTags = const [],
   List<DnsMemberOption> dnsMemberOptions = const [],
+  List<TailscaleEndpointOption> tailscaleEndpoints = const [],
   Set<String> existingTags = const {},
 }) {
   return Navigator.push<DnsServerEditResult>(
@@ -335,6 +358,7 @@ Future<DnsServerEditResult?> openDnsServerEditor(
         outboundOptions: outboundOptions,
         dnsServerTags: dnsServerTags,
         dnsMemberOptions: dnsMemberOptions,
+        tailscaleEndpoints: tailscaleEndpoints,
         existingTags: existingTags,
       ),
     ),

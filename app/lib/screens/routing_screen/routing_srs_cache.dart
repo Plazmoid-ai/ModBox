@@ -23,6 +23,7 @@ mixin _RoutingSrsCacheMixin on State<RoutingScreen>, LazyPersistMixin<RoutingScr
   ]);
   String _presetSrsKey(CustomRulePreset rule, String tag);
   bool _presetNeedsDownload(CustomRulePreset rule, SelectableRule preset);
+  bool _refreshNodeRules(); // §435 — строки правил узлов из контроллера
 
   Future<void> _load() async {
     final template = await TemplateLoader.load();
@@ -75,7 +76,10 @@ mixin _RoutingSrsCacheMixin on State<RoutingScreen>, LazyPersistMixin<RoutingScr
     // DNS-экран.
     // Неразмеченные правила ловим ДО нормализации: `markRuleOrder` мутирует
     // `orderNum` на месте, после неё разницы «было/стало» уже не видно.
-    final needsMarking = stripped.any((r) => r.orderNum == null);
+    // D-117 — сдвинутая голова тоже: её номер меняется, а порядок может и
+    // не поменяться.
+    final needsMarking = stripped.any((r) => r.orderNum == null) ||
+        requiredRuleNumsShifted(stripped, template.selectableRules);
     final normalized =
         normalizeRuleOrder(stripped, template.selectableRules, template);
     final orderChanged =
@@ -88,6 +92,10 @@ mixin _RoutingSrsCacheMixin on State<RoutingScreen>, LazyPersistMixin<RoutingScr
     }
 
     await _refreshSrsCache();
+
+    // §435 — правила узлов из источников контроллера (объединённый порядок
+    // строится в build).
+    _refreshNodeRules();
 
     setState(() {
       _loading = false;
@@ -129,7 +137,12 @@ mixin _RoutingSrsCacheMixin on State<RoutingScreen>, LazyPersistMixin<RoutingScr
         // Srs-правило резервирует свой id в disk-namespace'е независимо от
         // того, скачан файл или нет — чтобы prune не удалил ещё-не-скачанный.
         activeDiskIds.add(r.id);
-        final cached = await RuleSetDownloader.isCached(r.id);
+        // ## 12 — по файлу на набор; правило «скачано», когда есть ВСЕ.
+        activeDiskIds.addAll(r.cacheIds);
+        var cached = r.cacheIds.isNotEmpty;
+        for (final cacheId in r.cacheIds) {
+          if (!await RuleSetDownloader.isCached(cacheId)) cached = false;
+        }
         if (cached) _srsCached.add(r.id);
         if (!cached && r.enabled) {
           _customRules[i] = r.withEnabled(false);
@@ -236,7 +249,13 @@ mixin _RoutingSrsCacheMixin on State<RoutingScreen>, LazyPersistMixin<RoutingScr
       return;
     }
     setState(() => _srsDownloading.add(rule.id));
-    final path = await RuleSetDownloader.download(rule.id, rule.srsUrl.trim());
+    // ## 12 — все наборы по порядку; первый провал = провал правила.
+    String? path;
+    for (var i = 0; i < rule.srsUrls.length; i++) {
+      path = await RuleSetDownloader.download(
+          CustomRuleSrs.cacheIdAt(rule.id, i), rule.srsUrls[i]);
+      if (path == null) break;
+    }
     if (!mounted) return;
     setState(() {
       _srsDownloading.remove(rule.id);

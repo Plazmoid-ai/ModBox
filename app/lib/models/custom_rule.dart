@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../config/consts.dart' show kDirectOutboundTag;
 import '../services/parser/uri_utils.dart' show newUuidV4;
 import '../services/l10n/locale_controller.dart';
@@ -17,8 +19,8 @@ import '../services/l10n/locale_controller.dart';
 ///   routing) разворачивается на каждом `buildConfig`'е — обновил шаблон,
 ///   новое поведение у всех юзеров (spec §033).
 ///
-/// `kind` — дискриминатор для JSON-сериализации (читается `fromJson`-ом
-/// и выбирает правильный подкласс). В рантайме предпочтительнее
+/// Хранение — записи `rules[]` контракта 1.0 кодеком
+/// `codec/rule_record.dart` (§439). В рантайме предпочтительнее
 /// pattern-match `switch(cr)` — даёт exhaustive-проверку от компилятора.
 
 /// §366 — TTL кэша rule-set'а по умолчанию: неделя. Списки блокировок и
@@ -59,11 +61,9 @@ sealed class CustomRule {
   /// отдельного версионированного шага миграции нет.
   int? orderNum;
 
-  /// Enum-дискриминатор для JSON. Значения совпадают с именами подклассов
-  /// по convention (inline/srs/preset).
+  /// Enum-дискриминатор вида. Значения совпадают с именами подклассов
+  /// по convention (inline/srs/preset/json).
   CustomRuleKind get kind;
-
-  Map<String, dynamic> toJson();
 
   /// Короткая сводка для subtitle на RoutingScreen. Пустая → UI покажет
   /// заглушку "Tap to edit". Существительные-счётчики через getLocalText.plural
@@ -245,6 +245,13 @@ sealed class CustomRule {
         _ => '',
       };
 
+  /// ## 12 контракта (D-100) — все `.srs`-наборы правила по порядку; пусто
+  /// у прочих kind'ов.
+  List<String> get srsUrls => switch (this) {
+        CustomRuleSrs(:final srsUrls) => srsUrls,
+        _ => const [],
+      };
+
   /// §225 — сырое тело json-правила. Пусто для остальных kind'ов.
   String get json => switch (this) {
         CustomRuleJson(:final json) => json,
@@ -293,24 +300,6 @@ sealed class CustomRule {
   /// Устанавливает outbound. Для `preset` пишет в `varsValues['outbound']`,
   /// для inline/srs — в поле `outbound`.
   CustomRule withOutbound(String outbound);
-
-  /// Фабрика — читает `j['kind']` и делегирует в `fromJson` подкласса.
-  /// Backward-compat: если в JSON нет `kind`, пытается inline. Если есть
-  /// старое поле `target` (до rename в 1.4.1) — читается как `outbound`.
-  factory CustomRule.fromJson(Map<String, dynamic> j) {
-    final kindRaw = j['kind'] as String?;
-    final kind = CustomRuleKind.values.firstWhere(
-      (k) => k.name == kindRaw,
-      orElse: () => CustomRuleKind.inline,
-    );
-    final rule = switch (kind) {
-      CustomRuleKind.inline => CustomRuleInline.fromJson(j),
-      CustomRuleKind.srs => CustomRuleSrs.fromJson(j),
-      CustomRuleKind.preset => CustomRulePreset.fromJson(j),
-      CustomRuleKind.json => CustomRuleJson.fromJson(j),
-    };
-    return rule;
-  }
 }
 
 enum CustomRuleKind { inline, srs, preset, json }
@@ -358,6 +347,17 @@ class RuleDns {
         serverTag: serverTag ?? this.serverTag,
         forceIpv4: forceIpv4 ?? this.forceIpv4,
       );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is RuleDns &&
+          enabled == other.enabled &&
+          serverTag == other.serverTag &&
+          forceIpv4 == other.forceIpv4);
+
+  @override
+  int get hashCode => Object.hash(enabled, serverTag, forceIpv4);
 }
 
 /// §247 — resolve-опция правила (route rule action `resolve`, sing-box 1.14).
@@ -457,6 +457,23 @@ class RuleResolve {
         timeout: timeout ?? this.timeout,
         clientSubnet: clientSubnet ?? this.clientSubnet,
       );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is RuleResolve &&
+          only == other.only &&
+          strategy == other.strategy &&
+          serverTag == other.serverTag &&
+          disableCache == other.disableCache &&
+          disableOptimisticCache == other.disableOptimisticCache &&
+          rewriteTtl == other.rewriteTtl &&
+          timeout == other.timeout &&
+          clientSubnet == other.clientSubnet);
+
+  @override
+  int get hashCode => Object.hash(only, strategy, serverTag, disableCache,
+      disableOptimisticCache, rewriteTtl, timeout, clientSubnet);
 }
 
 /// Sentinel-значение для `CustomRuleInline.outbound` / `CustomRuleSrs.outbound`.
@@ -618,58 +635,6 @@ class CustomRuleInline extends CustomRule {
     return parts.join(' · ');
   }
 
-  @override
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'enabled': enabled,
-        'kind': kind.name,
-        if (orderNum != null) 'num': orderNum,
-        if (domains.isNotEmpty) 'domains': domains,
-        if (domainSuffixes.isNotEmpty) 'domainSuffixes': domainSuffixes,
-        if (domainKeywords.isNotEmpty) 'domainKeywords': domainKeywords,
-        if (ipCidrs.isNotEmpty) 'ipCidrs': ipCidrs,
-        if (ports.isNotEmpty) 'ports': ports,
-        if (portRanges.isNotEmpty) 'portRanges': portRanges,
-        if (packages.isNotEmpty) 'packages': packages,
-        if (protocols.isNotEmpty) 'protocols': protocols,
-        if (network.isNotEmpty) 'network': network,
-        if (ipIsPrivate) 'ipIsPrivate': true,
-        if (sourceIpCidrs.isNotEmpty) 'sourceIpCidrs': sourceIpCidrs,
-        if (sourceIpIsPrivate) 'sourceIpIsPrivate': true,
-        if (inbounds.isNotEmpty) 'inbounds': inbounds,
-        if (wifiSsids.isNotEmpty) 'wifiSsids': wifiSsids,
-        if (wifiBssids.isNotEmpty) 'wifiBssids': wifiBssids,
-        'outbound': outbound,
-        if (dns != null) 'dns': dns!.toJson(),
-        if (resolve != null) 'resolve': resolve!.toJson(),
-      };
-
-  factory CustomRuleInline.fromJson(Map<String, dynamic> j) => CustomRuleInline(
-        id: _id(j),
-        name: (j['name'] as String?) ?? '',
-        enabled: (j['enabled'] as bool?) ?? true,
-        orderNum: j['num'] as int?,
-        domains: _stringList(j['domains']),
-        domainSuffixes: _stringList(j['domainSuffixes']),
-        domainKeywords: _stringList(j['domainKeywords']),
-        ipCidrs: _stringList(j['ipCidrs']),
-        ports: _stringList(j['ports']),
-        portRanges: _stringList(j['portRanges']),
-        packages: _stringList(j['packages']),
-        protocols: _stringList(j['protocols']),
-        network: _stringList(j['network']),
-        ipIsPrivate: (j['ipIsPrivate'] as bool?) ?? false,
-        sourceIpCidrs: _stringList(j['sourceIpCidrs']),
-        sourceIpIsPrivate: (j['sourceIpIsPrivate'] as bool?) ?? false,
-        inbounds: _stringList(j['inbounds']),
-        wifiSsids: _stringList(j['wifiSsids']),
-        wifiBssids: _stringList(j['wifiBssids']),
-        outbound: _outbound(j),
-        dns: RuleDns.fromJson(j['dns']),
-        resolve: RuleResolve.fromJson(j['resolve']),
-      );
-
   CustomRuleInline copyWith({
     String? name,
     bool? enabled,
@@ -696,6 +661,8 @@ class CustomRuleInline extends CustomRule {
     // когда сняты оба аспекта (не копить мёртвый RuleDns{}).
     bool clearDns = false,
     RuleResolve? resolve,
+    // `"resolve": null` в PATCH Debug API — тот же приём, что clearDns.
+    bool clearResolve = false,
   }) =>
       CustomRuleInline(
         id: id,
@@ -719,8 +686,61 @@ class CustomRuleInline extends CustomRule {
         wifiBssids: wifiBssids ?? this.wifiBssids,
         outbound: outbound ?? this.outbound,
         dns: clearDns ? null : (dns ?? this.dns),
-        resolve: resolve ?? this.resolve,
+        resolve: clearResolve ? null : (resolve ?? this.resolve),
       );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CustomRuleInline &&
+          id == other.id &&
+          name == other.name &&
+          enabled == other.enabled &&
+          orderNum == other.orderNum &&
+          _listEq(domains, other.domains) &&
+          _listEq(domainSuffixes, other.domainSuffixes) &&
+          _listEq(domainKeywords, other.domainKeywords) &&
+          _listEq(ipCidrs, other.ipCidrs) &&
+          _listEq(ports, other.ports) &&
+          _listEq(portRanges, other.portRanges) &&
+          _listEq(packages, other.packages) &&
+          _listEq(protocols, other.protocols) &&
+          _listEq(network, other.network) &&
+          ipIsPrivate == other.ipIsPrivate &&
+          _listEq(sourceIpCidrs, other.sourceIpCidrs) &&
+          sourceIpIsPrivate == other.sourceIpIsPrivate &&
+          _listEq(inbounds, other.inbounds) &&
+          _listEq(wifiSsids, other.wifiSsids) &&
+          _listEq(wifiBssids, other.wifiBssids) &&
+          outbound == other.outbound &&
+          dns == other.dns &&
+          resolve == other.resolve);
+
+  @override
+  int get hashCode => Object.hashAll([
+        id,
+        name,
+        enabled,
+        orderNum,
+        Object.hashAll(domains),
+        Object.hashAll(domainSuffixes),
+        Object.hashAll(domainKeywords),
+        Object.hashAll(ipCidrs),
+        Object.hashAll(ports),
+        Object.hashAll(portRanges),
+        Object.hashAll(packages),
+        Object.hashAll(protocols),
+        Object.hashAll(network),
+        ipIsPrivate,
+        Object.hashAll(sourceIpCidrs),
+        sourceIpIsPrivate,
+        Object.hashAll(inbounds),
+        Object.hashAll(wifiSsids),
+        Object.hashAll(wifiBssids),
+        outbound,
+        dns,
+        resolve,
+      ]);
 
   @override
   CustomRuleInline withEnabled(bool enabled) => copyWith(enabled: enabled);
@@ -741,7 +761,8 @@ class CustomRuleSrs extends CustomRule {
     required super.name,
     super.enabled = true,
     super.orderNum,
-    this.srsUrl = '',
+    String srsUrl = '',
+    List<String> srsUrls = const [],
     this.ports = const [],
     this.portRanges = const [],
     this.packages = const [],
@@ -757,10 +778,31 @@ class CustomRuleSrs extends CustomRule {
     this.dns,
     this.resolve,
     this.updateIntervalHours = kDefaultSrsTtlHours,
-  }) : wifiBssids = _normalizeBssids(wifiBssids);
+  })  : wifiBssids = _normalizeBssids(wifiBssids),
+        srsUrls = normalizeSrsUrls(srsUrl, srsUrls);
+
+  /// ## 12 контракта (D-100) — все `.srs`-наборы правила по порядку. Правило
+  /// одно, наборов может быть несколько: сборка регистрирует `rule_set` на
+  /// каждый и эмитит одно routing-правило со списком тегов. Первый набор =
+  /// [srsUrl] (совместимость: хранение пишет `srsUrl` всегда и `srsUrls` при
+  /// двух и более, бэкап — `ref` и `refs`). Кэш каждого набора — свой файл,
+  /// см. [cacheIds].
+  @override
+  List<String> srsUrls;
 
   @override
-  String srsUrl;
+  String get srsUrl => srsUrls.isEmpty ? '' : srsUrls.first;
+
+  /// ## 12 — id файла кэша для набора [index]: первый — сам `id` правила
+  /// (файлы, скачанные до ## 12, остаются валидными), остальные —
+  /// `<id>~<index>`. `~` не встречается в uuid, коллизий с preset-ключами
+  /// (`preset__…`) нет.
+  static String cacheIdAt(String ruleId, int index) =>
+      index == 0 ? ruleId : '$ruleId~$index';
+
+  /// ## 12 — id кэша каждого набора, по порядку [srsUrls].
+  List<String> get cacheIds =>
+      [for (var i = 0; i < srsUrls.length; i++) cacheIdAt(id, i)];
 
   /// §366 — через сколько часов кэш считается протухшим. Авто-обновление
   /// (`RuleSetAutoUpdater`) берёт TTL отсюда; `0` = не обновлять
@@ -822,64 +864,17 @@ class CustomRuleSrs extends CustomRule {
   String summary() {
     if (srsUrl.trim().isEmpty) return '';
     final host = Uri.tryParse(srsUrl)?.host;
-    return getLocalText.s("SRS: %s", host?.isNotEmpty == true ? host! : srsUrl);
+    final first = host?.isNotEmpty == true ? host! : srsUrl;
+    // ## 12 — несколько наборов: хост первого и число остальных.
+    if (srsUrls.length > 1) {
+      return getLocalText.s("SRS: %s (+%d)", first, srsUrls.length - 1);
+    }
+    return getLocalText.s("SRS: %s", first);
   }
-
-  @override
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'enabled': enabled,
-        'kind': kind.name,
-        if (orderNum != null) 'num': orderNum,
-        if (srsUrl.isNotEmpty) 'srsUrl': srsUrl,
-        if (ports.isNotEmpty) 'ports': ports,
-        if (portRanges.isNotEmpty) 'portRanges': portRanges,
-        if (packages.isNotEmpty) 'packages': packages,
-        if (protocols.isNotEmpty) 'protocols': protocols,
-        if (network.isNotEmpty) 'network': network,
-        if (ipIsPrivate) 'ipIsPrivate': true,
-        if (sourceIpCidrs.isNotEmpty) 'sourceIpCidrs': sourceIpCidrs,
-        if (sourceIpIsPrivate) 'sourceIpIsPrivate': true,
-        if (inbounds.isNotEmpty) 'inbounds': inbounds,
-        if (wifiSsids.isNotEmpty) 'wifiSsids': wifiSsids,
-        if (wifiBssids.isNotEmpty) 'wifiBssids': wifiBssids,
-        'outbound': outbound,
-        if (dns != null) 'dns': dns!.toJson(),
-        if (resolve != null) 'resolve': resolve!.toJson(),
-        // §366 — дефолт не пишем: старые правила без ключа читаются как
-        // «неделя», и JSON не растёт на каждом правиле ради значения,
-        // которое и так подразумевается.
-        if (updateIntervalHours != kDefaultSrsTtlHours)
-          'updateIntervalHours': updateIntervalHours,
-      };
-
-  factory CustomRuleSrs.fromJson(Map<String, dynamic> j) => CustomRuleSrs(
-        id: _id(j),
-        name: (j['name'] as String?) ?? '',
-        enabled: (j['enabled'] as bool?) ?? true,
-        orderNum: j['num'] as int?,
-        srsUrl: (j['srsUrl'] as String?) ?? '',
-        ports: _stringList(j['ports']),
-        portRanges: _stringList(j['portRanges']),
-        packages: _stringList(j['packages']),
-        protocols: _stringList(j['protocols']),
-        network: _stringList(j['network']),
-        ipIsPrivate: (j['ipIsPrivate'] as bool?) ?? false,
-        sourceIpCidrs: _stringList(j['sourceIpCidrs']),
-        sourceIpIsPrivate: (j['sourceIpIsPrivate'] as bool?) ?? false,
-        inbounds: _stringList(j['inbounds']),
-        wifiSsids: _stringList(j['wifiSsids']),
-        wifiBssids: _stringList(j['wifiBssids']),
-        outbound: _outbound(j),
-        dns: RuleDns.fromJson(j['dns']),
-        resolve: RuleResolve.fromJson(j['resolve']),
-        updateIntervalHours: _srsTtl(j['updateIntervalHours']),
-      );
 
   /// §366 — TTL из JSON. Отсутствие, мусор и отрицательные значения → дефолт;
   /// `0` (Never) сохраняем как есть, это осознанный выбор юзера.
-  static int _srsTtl(dynamic v) {
+  static int ttlHoursFrom(Object? v) {
     final n = v is num ? v.toInt() : null;
     if (n == null || n < 0) return kDefaultSrsTtlHours;
     return n;
@@ -890,6 +885,7 @@ class CustomRuleSrs extends CustomRule {
     bool? enabled,
     int? orderNum,
     String? srsUrl,
+    List<String>? srsUrls,
     List<String>? ports,
     List<String>? portRanges,
     List<String>? packages,
@@ -905,6 +901,7 @@ class CustomRuleSrs extends CustomRule {
     RuleDns? dns,
     bool clearDns = false, // §257 — см. CustomRuleInline.copyWith
     RuleResolve? resolve,
+    bool clearResolve = false, // см. CustomRuleInline.copyWith
     int? updateIntervalHours,
   }) =>
       CustomRuleSrs(
@@ -912,7 +909,9 @@ class CustomRuleSrs extends CustomRule {
         name: name ?? this.name,
         enabled: enabled ?? this.enabled,
         orderNum: orderNum ?? this.orderNum,
-        srsUrl: srsUrl ?? this.srsUrl,
+        // Список главнее одиночного URL; одиночный (старые вызовы) заменяет
+        // весь список одним набором.
+        srsUrls: srsUrls ?? (srsUrl != null ? [srsUrl] : this.srsUrls),
         ports: ports ?? this.ports,
         portRanges: portRanges ?? this.portRanges,
         packages: packages ?? this.packages,
@@ -926,10 +925,59 @@ class CustomRuleSrs extends CustomRule {
         wifiBssids: wifiBssids ?? this.wifiBssids,
         outbound: outbound ?? this.outbound,
         dns: clearDns ? null : (dns ?? this.dns),
-        resolve: resolve ?? this.resolve,
+        resolve: clearResolve ? null : (resolve ?? this.resolve),
         updateIntervalHours:
             updateIntervalHours ?? this.updateIntervalHours,
       );
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CustomRuleSrs &&
+          id == other.id &&
+          name == other.name &&
+          enabled == other.enabled &&
+          orderNum == other.orderNum &&
+          _listEq(srsUrls, other.srsUrls) &&
+          _listEq(ports, other.ports) &&
+          _listEq(portRanges, other.portRanges) &&
+          _listEq(packages, other.packages) &&
+          _listEq(protocols, other.protocols) &&
+          _listEq(network, other.network) &&
+          ipIsPrivate == other.ipIsPrivate &&
+          _listEq(sourceIpCidrs, other.sourceIpCidrs) &&
+          sourceIpIsPrivate == other.sourceIpIsPrivate &&
+          _listEq(inbounds, other.inbounds) &&
+          _listEq(wifiSsids, other.wifiSsids) &&
+          _listEq(wifiBssids, other.wifiBssids) &&
+          outbound == other.outbound &&
+          dns == other.dns &&
+          resolve == other.resolve &&
+          updateIntervalHours == other.updateIntervalHours);
+
+  @override
+  int get hashCode => Object.hashAll([
+        id,
+        name,
+        enabled,
+        orderNum,
+        Object.hashAll(srsUrls),
+        Object.hashAll(ports),
+        Object.hashAll(portRanges),
+        Object.hashAll(packages),
+        Object.hashAll(protocols),
+        Object.hashAll(network),
+        ipIsPrivate,
+        Object.hashAll(sourceIpCidrs),
+        sourceIpIsPrivate,
+        Object.hashAll(inbounds),
+        Object.hashAll(wifiSsids),
+        Object.hashAll(wifiBssids),
+        outbound,
+        dns,
+        resolve,
+        updateIntervalHours,
+      ]);
 
   @override
   CustomRuleSrs withEnabled(bool enabled) => copyWith(enabled: enabled);
@@ -994,26 +1042,6 @@ class CustomRulePreset extends CustomRule {
         .join(', ');
   }
 
-  @override
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'enabled': enabled,
-        'kind': kind.name,
-        if (orderNum != null) 'num': orderNum,
-        'presetId': presetId,
-        if (varsValues.isNotEmpty) 'varsValues': varsValues,
-      };
-
-  factory CustomRulePreset.fromJson(Map<String, dynamic> j) => CustomRulePreset(
-        id: _id(j),
-        name: (j['name'] as String?) ?? '',
-        enabled: (j['enabled'] as bool?) ?? true,
-        orderNum: j['num'] as int?,
-        presetId: (j['presetId'] as String?) ?? '',
-        varsValues: _stringMap(j['varsValues']),
-      );
-
   CustomRulePreset copyWith({
     String? name,
     bool? enabled,
@@ -1028,6 +1056,29 @@ class CustomRulePreset extends CustomRule {
         orderNum: orderNum ?? this.orderNum,
         presetId: presetId ?? this.presetId,
         varsValues: varsValues ?? this.varsValues,
+      );
+
+  /// `varsValues` сравнивается как словарь: порядок ключей не значим.
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CustomRulePreset &&
+          id == other.id &&
+          name == other.name &&
+          enabled == other.enabled &&
+          orderNum == other.orderNum &&
+          presetId == other.presetId &&
+          _mapEq(varsValues, other.varsValues));
+
+  @override
+  int get hashCode => Object.hash(
+        id,
+        name,
+        enabled,
+        orderNum,
+        presetId,
+        Object.hashAllUnordered(
+            varsValues.entries.map((e) => Object.hash(e.key, e.value))),
       );
 
   @override
@@ -1057,10 +1108,13 @@ class CustomRulePreset extends CustomRule {
 /// и т.д.) без модели-на-каждое-поле. Действие — часть самого JSON, поэтому
 /// `outbound` отсутствует, а match-секции UI (domain/port/wifi/dns) скрыты.
 ///
-/// `json` хранится как ввёл юзер (не переформатируем). Валидность синтаксиса
-/// проверяется в UI (inline) и в билдере (skip+warning на битом JSON, без
-/// падения сборки). Dangling `outbound` внутри тела ловит `validateConfig`
-/// тем же путём, что и обычные правила.
+/// Валидность синтаксиса проверяется в UI (inline) и в билдере (skip+warning
+/// на битом JSON, без падения сборки). Dangling `outbound` внутри тела ловит
+/// `validateConfig` тем же путём, что и обычные правила.
+///
+/// §439 — вид модели, не записи: в записи 1.0 это `inline` + `verbatim: true`
+/// с телом-объектом (`codec/rule_record.dart`), форматирование текста в
+/// состояние не входит. Отсюда равенство по содержимому JSON.
 class CustomRuleJson extends CustomRule {
   CustomRuleJson({
     super.id,
@@ -1085,24 +1139,6 @@ class CustomRuleJson extends CustomRule {
     return oneLine.length <= 48 ? oneLine : '${oneLine.substring(0, 48)}…';
   }
 
-  @override
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'enabled': enabled,
-        'kind': kind.name,
-        if (orderNum != null) 'num': orderNum,
-        'json': json,
-      };
-
-  factory CustomRuleJson.fromJson(Map<String, dynamic> j) => CustomRuleJson(
-        id: _id(j),
-        name: (j['name'] as String?) ?? '',
-        enabled: (j['enabled'] as bool?) ?? true,
-        orderNum: j['num'] as int?,
-        json: (j['json'] as String?) ?? '',
-      );
-
   CustomRuleJson copyWith({String? name, bool? enabled, int? orderNum, String? json}) =>
       CustomRuleJson(
         id: id,
@@ -1111,6 +1147,25 @@ class CustomRuleJson extends CustomRule {
         orderNum: orderNum ?? this.orderNum,
         json: json ?? this.json,
       );
+
+  /// [json] сравнивается по содержимому: тексты, которые разбираются в один
+  /// и тот же JSON (порядок ключей значим), равны при любых пробелах; текст,
+  /// который не разбирается, — посимвольно.
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CustomRuleJson &&
+          id == other.id &&
+          name == other.name &&
+          enabled == other.enabled &&
+          orderNum == other.orderNum &&
+          (json == other.json ||
+              (_canonicalJson(json) ?? json) ==
+                  (_canonicalJson(other.json) ?? other.json)));
+
+  @override
+  int get hashCode =>
+      Object.hash(id, name, enabled, orderNum, _canonicalJson(json) ?? json);
 
   @override
   CustomRuleJson withEnabled(bool enabled) => copyWith(enabled: enabled);
@@ -1124,18 +1179,47 @@ class CustomRuleJson extends CustomRule {
 
 // ─── helpers ───────────────────────────────────────────────────────────
 
-String? _id(Map<String, dynamic> j) {
-  final id = j['id'] as String?;
-  return (id?.trim().isNotEmpty ?? false) ? id : null;
+/// Компактная запись разобранного JSON-текста; не разбирается — null.
+String? _canonicalJson(String text) {
+  try {
+    return jsonEncode(jsonDecode(text));
+  } on FormatException {
+    return null;
+  }
 }
 
-/// Читает `outbound`, fallback на legacy-поле `target` (до 1.4.1 rename).
-String _outbound(Map<String, dynamic> j) =>
-    (j['outbound'] as String?) ?? (j['target'] as String?) ?? kDirectOutboundTag;
+/// ## 12 — нормализация списка `.srs`-наборов: непустой [srsUrls] главнее
+/// одиночного [srsUrl]; trim, пустые и повторы (с сохранением порядка) — вон.
+List<String> normalizeSrsUrls(String srsUrl, List<String> srsUrls) {
+  final out = <String>[];
+  for (final u in srsUrls.isEmpty ? [srsUrl] : srsUrls) {
+    final t = u.trim();
+    if (t.isNotEmpty && !out.contains(t)) out.add(t);
+  }
+  return out;
+}
 
-List<String> _stringList(dynamic v) {
-  if (v is! List) return const [];
-  return v.map((e) => e.toString()).toList();
+/// ## 12 — список наборов из текста поля редактора: по одному URL на строку
+/// (любые пробельные разделители), пустые и повторы отбрасываются.
+List<String> parseSrsUrlsText(String text) =>
+    normalizeSrsUrls('', text.split(RegExp(r'\s+')));
+
+bool _listEq(List<String> a, List<String> b) {
+  if (identical(a, b)) return true;
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
+bool _mapEq(Map<String, String> a, Map<String, String> b) {
+  if (identical(a, b)) return true;
+  if (a.length != b.length) return false;
+  for (final e in a.entries) {
+    if (!b.containsKey(e.key) || b[e.key] != e.value) return false;
+  }
+  return true;
 }
 
 /// §051 — нормализует BSSID к lower-case формату `xx:xx:xx:xx:xx:xx`.
@@ -1145,12 +1229,4 @@ List<String> _stringList(dynamic v) {
 List<String> _normalizeBssids(List<String> bssids) {
   if (bssids.isEmpty) return const [];
   return bssids.map((b) => b.trim().toLowerCase()).toList(growable: false);
-}
-
-Map<String, String> _stringMap(dynamic v) {
-  if (v is! Map) return const {};
-  return {
-    for (final e in v.entries)
-      if (e.key is String) e.key as String: e.value?.toString() ?? '',
-  };
 }

@@ -1,6 +1,7 @@
 import 'auto_select.dart';
 import 'emit_context.dart';
 import 'node_entries.dart';
+import 'node_sections.dart';
 import 'node_spec_emit.dart' as e;
 import 'node_warning.dart';
 import 'singbox_entry.dart';
@@ -79,6 +80,18 @@ sealed class NodeSpec {
   /// «View replacements» в списке нод.
   List<String> ruleTrail = const [];
 
+  /// §435 — связка узла, извлечённая парсером из целого sing-box-конфига с
+  /// одним узлом (NODE_SECTIONS.md §6) или прочитанная из документа с
+  /// `sections`. Mutable и не сериализуется, как `sourceCompact`: хозяин
+  /// секций — контейнер (`UserServer.sections` / `FolderMember.sections`),
+  /// контроллер переносит её туда при добавлении узла и только тогда.
+  NodeSections? importedSections;
+
+  /// §435 — узел без адреса: группа §322 или Tailscale (tsnet сам входит в
+  /// tailnet). Инвариант `isAddressless ⇔ server.isEmpty && port == 0`.
+  /// Гейт для подписей `server:port`, пробы и операций, требующих адреса.
+  bool get isAddressless => false;
+
   NodeSpec({
     required this.id,
     required this.tag,
@@ -127,8 +140,8 @@ sealed class NodeSpec {
   /// §322 — узел-группа (пул автовыбора), а не соединение. У такого нет
   /// адреса: `server`/`port` пусты, пинг берётся у выбранного члена. Гейт для
   /// операций, требующих `server:port`, и для тех, что раздают ссылку наружу
-  /// (copy / QR / move): `autogroup://`-форма существует ради хранения, но
-  /// переносить её в другой контейнер бессмысленно — см. `autoGroupToUri`.
+  /// (copy / QR / move): ссылки у группы нет, её члены — узлы своего
+  /// контейнера, и в чужом она осмысленной не станет.
   ///
   /// Инвариант: `isGroup ⇔ server.isEmpty && port == 0` (проверяется тестом).
   bool get isGroup => false;
@@ -1187,6 +1200,9 @@ final class AutoSelectSpec extends NodeSpec {
   @override
   bool get isGroup => true;
 
+  @override
+  bool get isAddressless => true;
+
   /// Эмиссия у этого узла особая: состав пула известен только билдеру (теги
   /// членов присваиваются `allocateTag` уже после `getEntries`), поэтому
   /// собственный `emitRaw` отдаёт заготовку БЕЗ `outbounds` — билдер
@@ -1199,11 +1215,21 @@ final class AutoSelectSpec extends NodeSpec {
         ...params.toJson(),
       });
 
-  /// §322 §7 — синтетический `autogroup://`. Нужен, чтобы группа хранилась в
-  /// папке общим механизмом (`FolderMember.raw`). НЕ переносимая ссылка:
-  /// правило написано под состав своей папки (см. `autoGroupToUri`).
+  /// URI-формы у группы нет: в папке она хранится записью `kind: auto`
+  /// (§439, кодек `codec/auto_group_record.dart`), в подписке производна от
+  /// тела. Пустая строка — «ссылки нет».
   @override
-  String toUri() => autoGroupToUri(label, membership, params, poolBadge);
+  String toUri() => '';
+
+  /// Значение группы — то, что хранит запись `kind: auto`: тег, подпись,
+  /// членство, параметры, значки. `id` (рантайм) и [tagSynonyms] (производное
+  /// от тела подписки) в значение не входят.
+  bool sameGroupAs(AutoSelectSpec other) =>
+      tag == other.tag &&
+      label == other.label &&
+      membership == other.membership &&
+      params == other.params &&
+      poolBadge == other.poolBadge;
 
   AutoSelectSpec copyWith({
     String? tag,
@@ -1225,6 +1251,83 @@ final class AutoSelectSpec extends NodeSpec {
       );
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// Tailscale (§435, контракт ## 13) — endpoint без адреса
+// ════════════════════════════════════════════════════════════════════════════
+
+/// Узел Tailscale (`type: tailscale`, sing-box ≥ 1.12 endpoint): tsnet в
+/// user-space сам входит в tailnet по `auth_key`, адреса на верхнем уровне у
+/// него нет. URI-формы у схемы нет — узел приходит из sing-box JSON или из
+/// мастера «Add server → Tailscale».
+///
+/// Тело хранится **как есть** ([body]): контракт его не типизирует, а
+/// типизация потеряла бы незнакомое молча (`auth_key`, `control_url`,
+/// `hostname`, `ephemeral`, `accept_routes`, `exit_node`,
+/// `exit_node_allow_lan_access`, `advertise_routes`, `state_directory`,
+/// dial-поля …). Без `type`/`tag`/`detour`: тип и тег — метаданные, detour —
+/// через [chained], как у всех.
+final class TailscaleSpec extends NodeSpec {
+  final Map<String, dynamic> body;
+
+  TailscaleSpec({
+    required super.id,
+    required super.tag,
+    required super.label,
+    Map<String, dynamic> body = const {},
+    super.chained,
+    super.warnings,
+  })  : body = _stripMeta(body),
+        super(server: '', port: 0, rawUri: '');
+
+  static Map<String, dynamic> _stripMeta(Map<String, dynamic> raw) {
+    final copy = deepCopyJson(raw) as Map<String, dynamic>;
+    copy
+      ..remove('type')
+      ..remove('tag')
+      ..remove('detour');
+    return copy;
+  }
+
+  @override
+  String get protocol => 'tailscale';
+
+  @override
+  bool get isAddressless => true;
+
+  /// Непустой `exit_node` — узел выпускает в интернет и годится в
+  /// Направления; без него он только даёт доступ в tailnet (NODE_SECTIONS.md
+  /// §6): в пул Направлений не идёт, но законен как `detour` и `outbound`.
+  bool get hasExitNode {
+    final v = body['exit_node'];
+    return v is String && v.trim().isNotEmpty;
+  }
+
+  @override
+  SingboxEntry emitRaw(TemplateVars vars) => e.emitTailscale(this, vars);
+
+  /// Канонический текст узла — JSON endpoint'а с `tag` (URI-формы нет).
+  /// `decode()` разбирает его обратно как `singboxOutbound`, поэтому
+  /// `rawBody`/`raw` члена папки, переименование и эмодзи работают без
+  /// отдельных веток.
+  @override
+  String toUri() => e.toUriTailscale(this);
+
+  TailscaleSpec copyWith({
+    String? tag,
+    String? label,
+    Map<String, dynamic>? body,
+    NodeSpec? chained,
+  }) =>
+      TailscaleSpec(
+        id: id,
+        tag: tag ?? this.tag,
+        label: label ?? this.label,
+        body: body ?? this.body,
+        chained: chained ?? this.chained,
+        warnings: warnings,
+      );
+}
+
 /// §368 — пересборка узла с detour-звеном.
 ///
 /// `NodeSpec` иммутабелен и общего `copyWith` в базе нет, поэтому ветвим по
@@ -1236,6 +1339,7 @@ final class AutoSelectSpec extends NodeSpec {
 /// Группа цепочку не несёт (`AutoSelectSpec` без `chained`) — возвращаем как
 /// есть; вызывающий такую ссылку отсеивает раньше, с warning'ом (§4 P5).
 NodeSpec withChained(NodeSpec spec, NodeSpec chained) => switch (spec) {
+      TailscaleSpec s => s.copyWith(chained: chained),
       VlessSpec s => VlessSpec(
           id: s.id,
           tag: s.tag,

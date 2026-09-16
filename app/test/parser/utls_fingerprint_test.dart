@@ -68,6 +68,108 @@ void main() {
     });
   });
 
+  group('SPEC 083/086/087 — REALITY + отпечаток без гибридного key share', () {
+    test('kRealityHybridFingerprints ⊂ словаря ядра', () {
+      expect(kUtlsFingerprints.containsAll(kRealityHybridFingerprints), isTrue);
+      expect(isRealityHybridFingerprint(''), isTrue, reason: 'дефолт ядра');
+      expect(isRealityHybridFingerprint('chrome_pq'), isTrue);
+      expect(isRealityHybridFingerprint('random'), isFalse);
+      expect(isRealityHybridFingerprint('randomized'), isFalse);
+    });
+
+    // §451 / ядро SPEC 086+087 (libbox ≥ v1.14.1-lx.3) — форк utls добавил
+    // Firefox 148 и Safari 26.3 с гибридным key share.
+    test('firefox и safari несут гибрид, остальные не-chrome — нет', () {
+      for (final fp in ['firefox', 'safari']) {
+        expect(isRealityHybridFingerprint(fp), isTrue, reason: fp);
+      }
+      for (final fp in ['edge', 'ios', 'android', '360', 'qq']) {
+        expect(isRealityHybridFingerprint(fp), isFalse, reason: fp);
+      }
+    });
+
+    test('REALITY + fp=firefox/safari → без предупреждения, значение сохранено',
+        () {
+      for (final fp in ['firefox', 'safari']) {
+        final spec = parseVless(
+            'vless://u@h:443?type=tcp&security=reality&encryption=none'
+            '&fp=$fp&pbk=$_validPbk#L')!;
+        expect(spec.tls.fingerprint, fp,
+            reason: '§444: отпечаток источника не подменяется');
+        expect(spec.warnings.whereType<RealityFingerprintWarning>(), isEmpty,
+            reason: fp);
+        expect(spec.warnings.whereType<UnknownFingerprintWarning>(), isEmpty);
+      }
+    });
+
+    test('REALITY + fp=edge → RealityFingerprintWarning, значение сохранено',
+        () {
+      final spec = parseVless(
+          'vless://u@h:443?type=tcp&security=reality&encryption=none'
+          '&fp=edge&pbk=$_validPbk#L')!;
+      expect(spec.tls.fingerprint, 'edge',
+          reason: '§444: отпечаток источника не подменяется ни в entry, ни в конфиге');
+      expect(spec.warnings.whereType<RealityFingerprintWarning>().single.value,
+          'edge');
+      expect(spec.warnings.whereType<UnknownFingerprintWarning>(), isEmpty);
+    });
+
+    test('REALITY + xray-псевдоним hellofirefox_auto → firefox, без предупреждения',
+        () {
+      final spec = parseVless(
+          'vless://u@h:443?type=tcp&security=reality&encryption=none'
+          '&fp=hellofirefox_auto&pbk=$_validPbk#L')!;
+      expect(spec.tls.fingerprint, 'firefox');
+      expect(spec.warnings.whereType<RealityFingerprintWarning>(), isEmpty);
+    });
+
+    test('REALITY + xray-псевдоним helloqq_auto → qq + предупреждение', () {
+      final spec = parseVless(
+          'vless://u@h:443?type=tcp&security=reality&encryption=none'
+          '&fp=helloqq_auto&pbk=$_validPbk#L')!;
+      expect(spec.tls.fingerprint, 'qq');
+      expect(spec.warnings.whereType<RealityFingerprintWarning>().single.value,
+          'qq');
+    });
+
+    test('REALITY + chrome-семейство и дефолтный random → без предупреждения',
+        () {
+      for (final q in ['&fp=chrome', '&fp=chrome_pq', '&fp=HelloChrome_120', '']) {
+        final spec = parseVless(
+            'vless://u@h:443?type=tcp&security=reality&encryption=none'
+            '$q&pbk=$_validPbk#L')!;
+        expect(spec.warnings.whereType<RealityFingerprintWarning>(), isEmpty,
+            reason: 'q="$q"');
+      }
+    });
+
+    test('plain TLS + fp=firefox → без предупреждения (сервер не REALITY)', () {
+      final spec = parseVless(
+          'vless://u@h:443?type=tcp&security=tls&encryption=none'
+          '&fp=firefox&sni=h#L')!;
+      expect(spec.tls.reality, isNull);
+      expect(spec.warnings.whereType<RealityFingerprintWarning>(), isEmpty);
+    });
+
+    test('raw sing-box JSON: REALITY + safari — без аккумулятора, значение цело',
+        () {
+      final spec = parseSingboxEntry({
+        'type': 'vless',
+        'tag': 't',
+        'server': 'h',
+        'server_port': 443,
+        'uuid': '0aa41f0a-6d92-4f74-8b13-4d0d5b6cbb6c',
+        'tls': {
+          'enabled': true,
+          'server_name': 'x.com',
+          'utls': {'enabled': true, 'fingerprint': 'safari'},
+          'reality': {'enabled': true, 'public_key': _validPbk},
+        },
+      })! as VlessSpec;
+      expect(spec.tls.fingerprint, 'safari');
+    });
+  });
+
   group('VLESS (реальный кейс подписки)', () {
     test('REALITY + fp=hellochrome_120 → chrome, МОЛЧА, reality на месте', () {
       final spec = parseVless(

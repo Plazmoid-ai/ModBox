@@ -36,6 +36,48 @@ const Set<String> kUtlsFingerprints = {
   'randomized',
 };
 
+/// Имена словаря, чья utls-спека несёт key_share `X25519MLKEM768` перед
+/// X25519. REALITY-сервер Xray ≥ v26.9.8 (`XTLS/REALITY@8cdf7bf`) без этого
+/// шара молча проксирует соединение на камуфляжный сайт (`reality
+/// verification failed`).
+///
+/// SPEC 083 (ядро) — гибрид был только у chrome-имён (`HelloChrome_133`,
+/// все шесть ядро схлопывает в `HelloChrome_Auto`).
+///
+/// SPEC 086/087 (ядро, **с libbox v1.14.1-lx.3**) — форк utls `Leadaxe/utls-lx`
+/// добавил пресеты `HelloFirefox_148` и `HelloSafari_26_3` с гибридом
+/// (перенос из `refraction-networking/utls`), так что `firefox` и `safari`
+/// на этом ядре проходят наравне с chrome. В апстримном `metacubex/utls`
+/// гибрида у них нет — набор нормативен ТОЛЬКО для пина lx.3 и новее
+/// (`app/android/libbox.version`); при откате ядра назад его надо сузить.
+///
+/// Остаются без гибрида и под предупреждением: `edge`, `ios`, `android`,
+/// `360`, `qq`. Особый случай — `random`: это дефолт URI-парсера при пустом
+/// `fp`, один из пяти профилей (гибрид несёт не всегда), в набор не входит и
+/// под предупреждение не попадает по отдельному условию; `randomized` —
+/// гибрид монетой.
+///
+/// Эталон Go — `realityHybridUTLSFingerprints` (`node_parser_transport.go`),
+/// контракт: код `reality_fp_not_chrome` получают только пять имён выше.
+const Set<String> kRealityHybridFingerprints = {
+  'chrome',
+  'chrome_psk',
+  'chrome_psk_shuffle',
+  'chrome_padding_psk_shuffle',
+  'chrome_pq',
+  'chrome_pq_psk',
+  // SPEC 086 (ядро lx.2) — Firefox 148.
+  'firefox',
+  // SPEC 087 (ядро lx.3) — Safari 26.3.
+  'safari',
+};
+
+/// `true`, если [fp] (уже канонизированный) даёт ClientHello, который
+/// принимает REALITY-сервер Xray ≥ v26.9.8. Пустое значение = дефолт ядра
+/// (chrome) — тоже `true`.
+bool isRealityHybridFingerprint(String fp) =>
+    fp.isEmpty || kRealityHybridFingerprints.contains(fp);
+
 /// Xray-псевдонимы — сырые имена uTLS-библиотеки, матчим по префиксу
 /// (`hellochrome_120`, `hellochrome_106_shuffle`, `hellorandomizedalpn` …).
 const Map<String, String> _xrayAliasPrefixes = {
@@ -77,6 +119,18 @@ TlsSpec normalizeTlsFingerprint(TlsSpec tls, List<NodeWarning>? warnings) {
   // ядра для пустой строки).
   if (value.isEmpty && tls.reality != null) value = 'chrome';
   if (n.junk) warnings?.add(UnknownFingerprintWarning(fp));
+  // SPEC 083/086/087 — REALITY + отпечаток без гибридного key share: Xray
+  // ≥ v26.9.8 такое приветствие отвергает молча. §444 — только
+  // предупреждение: значение не меняется ни в ноде, ни в конфиге (отпечаток
+  // задаёт подписка, приложение её выбор не переписывает). `random` — дефолт
+  // URI-парсера при пустом `fp` (transport.dart), от явного `fp=random`
+  // неотличим → без предупреждения; post-step `healUnknownUtlsFingerprints`
+  // пишет вместо него `chrome` (наш дефолт).
+  if (tls.reality != null &&
+      value != 'random' &&
+      !isRealityHybridFingerprint(value)) {
+    warnings?.add(RealityFingerprintWarning(value));
+  }
   if (value == fp) return tls;
   return tls.copyWith(fingerprint: value);
 }

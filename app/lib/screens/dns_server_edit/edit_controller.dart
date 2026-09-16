@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'dart:io' show InternetAddress;
 
-import 'package:collection/collection.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../config/consts.dart' show kDirectOutboundTag;
+import '../../models/dns_ref.dart';
 import '../../models/parser_config.dart' show WizardVar;
+import '../../services/dns/node_dns_records.dart' show TailscaleEndpointOption;
+import '../../services/record_vars.dart';
 import '../../widgets/outbound_picker.dart';
 import '../../widgets/var_values_model.dart';
 import '../dns_settings_screen/resolved_server.dart';
@@ -14,7 +16,22 @@ import '../dns_settings_screen/resolved_server.dart';
 /// Значение = sing-box `type`. Прочие типы (`local`, `h3`, …) формой не
 /// выражаются — редактируются на JSON-вкладке.
 /// §312 — `group` (kernel SPEC 033): группа DNS-серверов с резервированием.
-const kDnsServerModes = ['udp', 'tls', 'https', 'quic', 'h3', 'group'];
+/// §435 — `tailscale` (NODE_SECTIONS.md §6): MagicDNS через узел tailnet,
+/// вместо адреса — `endpoint` (тег узла), без `detour`.
+const kDnsServerModes = [
+  'udp',
+  'tls',
+  'https',
+  'quic',
+  'h3',
+  'group',
+  'tailscale',
+];
+
+/// §435 — безадресные режимы формы: у них нет `server`/`server_port`/
+/// `path`/`tls`/`domain_resolver`/`detour` — гейт «адрес обязателен» и
+/// пикер detour их не касаются.
+const kDnsAddresslessModes = {'group', 'tailscale'};
 
 /// §411 — режимы, у которых есть HTTP-path (`/dns-query`): DoH и DoH3.
 const kDnsPathModes = {'https', 'h3'};
@@ -58,9 +75,9 @@ int defaultDnsPort(String mode) => switch (mode) {
 /// Паттерн 1:1 с [CustomRuleEditController] (§053 Stage 3): `ChangeNotifier`
 /// + `isDirty()`/`snapshot()`, раздаётся вниз через [DnsServerEditScope].
 ///
-/// Редактирует **ref-запись** стораджа `{enabled, kind, tag, description?,
-/// body?, varValues?}` — модель/сторадж/эмиссия серверов не меняются
-/// (locked decision №10), это чистый UI поверх задач 1–3.
+/// Редактирует **ref-запись** DNS-сервера ([DnsServerRef]) — модель/сторадж/
+/// эмиссия серверов не меняются (locked decision №10), это чистый UI поверх
+/// задач 1–3.
 ///
 /// **Что владеет controller:**
 /// - `tagCtrl` (inline; locked при edit existing), `descCtrl`,
@@ -80,13 +97,14 @@ class DnsServerEditController extends ChangeNotifier {
     this.outboundOptions = const [],
     this.dnsServerTags = const [],
     this.dnsMemberOptions = const [],
+    this.tailscaleEndpoints = const [],
   }) {
     _init();
   }
 
   /// Исходная ref-запись (для edit — из `_servers`; для new — дефолтная
   /// inline-заготовка). База для dirty-сравнения и snapshot'а.
-  final Map<String, dynamic> initialRef;
+  final DnsServerRef initialRef;
 
   /// Display-модель редактируемого сервера. null = new-режим (inline).
   final ResolvedServer? resolved;
@@ -110,6 +128,11 @@ class DnsServerEditController extends ChangeNotifier {
   /// drop-семантика №3: выбираем, но помечаем «will be skipped»), кроме
   /// самого себя; fakeip/hosts отфильтрованы источником (запрет ядра).
   final List<DnsMemberOption> dnsMemberOptions;
+
+  /// §435 — узлы Tailscale для пикера `endpoint` сервера `tailscale`
+  /// (display-теги; выключенные помечаются «will be skipped» — санитайзер
+  /// сборки выбросит сервер на неэмитированный endpoint).
+  final List<TailscaleEndpointOption> tailscaleEndpoints;
 
   // ─── Производные ─────────────────────────────────────────────────────
 
@@ -143,7 +166,7 @@ class DnsServerEditController extends ChangeNotifier {
 
   /// §232 — реактивная модель для [TemplateVarListView] (per-key подписка
   /// полей). Persistence-истина остаётся [_varValues] (сериализуется в
-  /// `out['varValues']` только с явно заданными ключами) — модель сидируется
+  /// `varValues` ref'а только с явно заданными ключами) — модель сидируется
   /// vars+defaults и обновляется TVLV напрямую; [setVarValue] (onChanged)
   /// ведёт запись в [_varValues]. §161: пустое required попадает в модель
   /// display-only и до [_varValues] не доходит.
@@ -182,6 +205,19 @@ class DnsServerEditController extends ChangeNotifier {
   /// с «Server address is required» — v2.18.0).
   bool get isGroup => serverMode == 'group';
 
+  /// §435 — это DNS-сервер `tailscale`? Адреса у него тоже нет: транспорт
+  /// задаёт `endpoint` (узел tailnet). Тот же обход гейта «адрес обязателен»
+  /// и пикера detour, что у группы ([kDnsAddresslessModes]).
+  bool get isTailscale => serverMode == 'tailscale';
+
+  /// §435 — тег узла Tailscale (`body.endpoint`); пусто = не выбран.
+  String get tailscaleEndpoint => _body['endpoint']?.toString() ?? '';
+
+  /// §435 — `accept_default_resolvers`: пускать имена вне tailnet к
+  /// резолверам по умолчанию (иначе ядро отвечает NXDOMAIN). Ключ
+  /// материализуется только как `true`.
+  bool get acceptDefaultResolvers => _body['accept_default_resolvers'] == true;
+
   /// Тип body как есть (для пометки «custom type — use JSON tab»).
   String get rawServerType => _body['type']?.toString() ?? '';
 
@@ -197,16 +233,14 @@ class DnsServerEditController extends ChangeNotifier {
 
   void _init() {
     final r = resolved;
-    tagCtrl = TextEditingController(
-      text: r?.tag ?? initialRef['tag']?.toString() ?? '',
-    );
+    final ref = initialRef;
+    tagCtrl = TextEditingController(text: r?.tag ?? ref.tag);
     descCtrl = TextEditingController(
-      text: r?.description ?? initialRef['description']?.toString() ?? '',
+      text: r?.description ?? ref.description ?? '',
     );
-    _enabled = initialRef['enabled'] != false;
-    final vv = initialRef['varValues'];
-    _varValues = vv is Map
-        ? {for (final e in vv.entries) e.key.toString(): '${e.value}'}
+    _enabled = ref.enabled;
+    _varValues = ref is DnsServerTemplate
+        ? Map<String, String>.of(ref.varValues)
         : <String, String>{};
     // §232 — модель для TVLV: все vars с fallback на default (контракт TVLV:
     // «отсутствующий ключ» не различим от пустого — сидируем всё).
@@ -217,8 +251,10 @@ class DnsServerEditController extends ChangeNotifier {
     // tag'а; для new — заготовка из initialRef.
     Map<String, dynamic> body;
     if (kind == ServerKind.inline) {
-      final src = r != null ? r.body : (initialRef['body'] ?? const {});
-      body = src is Map ? Map<String, dynamic>.from(src) : <String, dynamic>{};
+      final src = r != null
+          ? r.body
+          : (ref is DnsServerInline ? ref.body : const <String, dynamic>{});
+      body = Map<String, dynamic>.from(src);
       _stripRefLevelFields(body);
     } else {
       body = const {};
@@ -299,8 +335,27 @@ class DnsServerEditController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// §441 (Н3/Н4) — значение пишется подрезанным; пустое или равное
+  /// умолчанию переменной снимает ключ: выбор умолчания — сброс к шаблону.
   void setVarValue(String name, String value) {
-    _varValues[name] = value;
+    WizardVar? decl;
+    for (final v in vars) {
+      if (v.name == name) {
+        decl = v;
+        break;
+      }
+    }
+    final stored = recordVarValueToStore(
+      value,
+      decl == null
+          ? null
+          : RecordVarDecl(name: decl.name, defaultValue: decl.defaultValue),
+    );
+    if (stored == null) {
+      _varValues.remove(name);
+    } else {
+      _varValues[name] = stored;
+    }
     notifyListeners();
   }
 
@@ -322,36 +377,21 @@ class DnsServerEditController extends ChangeNotifier {
   // текстом (затирает невалидный недонабранный JSON — осознанный trade-off:
   // валидный _body — последний источник правды).
 
-  /// Переключение режима UDP/DoT/DoH/DoQ/DoH3/Group. Адрес/detour сохраняются между
-  /// транспортными режимами; порт со старого дефолта снимается (ключ уходит —
-  /// sing-box применит дефолт нового режима); path/tls чистятся под режим.
+  /// Переключение режима UDP/DoT/DoH/DoQ/DoH3/Group/Tailscale. Адрес/detour
+  /// сохраняются между транспортными режимами; порт со старого дефолта
+  /// снимается (ключ уходит — sing-box применит дефолт нового режима);
+  /// path/tls чистятся под режим.
   /// §312 — переход В группу чистит транспортные поля (у группы их нет),
   /// переход ИЗ группы чистит групповые.
+  /// §435 — то же для `tailscale`: вход чистит транспорт (и групповые поля),
+  /// уход чистит `endpoint`/`accept_default_resolvers`.
   void setServerMode(String mode) {
     if (!kDnsServerModes.contains(mode)) return;
     final old = serverMode;
     if (old == mode) return;
     _body['type'] = mode;
-    if (mode == 'group') {
-      // §312 — у группы только servers/mode/error_ttl/win_ttl.
-      _body
-        ..remove('server')
-        ..remove('server_port')
-        ..remove('path')
-        ..remove('tls')
-        ..remove('domain_resolver')
-        ..remove('detour');
-      _body['servers'] = _body['servers'] is List
-          ? _body['servers']
-          : <String>[];
-      addressCtrl.text = '';
-      portCtrl.text = '';
-      pathCtrl.text = '';
-      sniCtrl.text = '';
-      _syncJsonFromBody();
-      notifyListeners();
-      return;
-    }
+    // Уход из безадресного режима — его поля чистятся первыми, куда бы ни
+    // шли (group → tailscale и обратно не должны тащить чужие ключи).
     if (old == 'group') {
       _body
         ..remove('servers')
@@ -360,6 +400,34 @@ class DnsServerEditController extends ChangeNotifier {
         ..remove('win_ttl');
       errorTtlCtrl.text = '';
       winTtlCtrl.text = '';
+    }
+    if (old == 'tailscale') {
+      _body
+        ..remove('endpoint')
+        ..remove('accept_default_resolvers');
+    }
+    if (kDnsAddresslessModes.contains(mode)) {
+      // §312 — у группы только servers/mode/error_ttl/win_ttl;
+      // §435 — у tailscale только endpoint/accept_default_resolvers.
+      _body
+        ..remove('server')
+        ..remove('server_port')
+        ..remove('path')
+        ..remove('tls')
+        ..remove('domain_resolver')
+        ..remove('detour');
+      if (mode == 'group') {
+        _body['servers'] = _body['servers'] is List
+            ? _body['servers']
+            : <String>[];
+      }
+      addressCtrl.text = '';
+      portCtrl.text = '';
+      pathCtrl.text = '';
+      sniCtrl.text = '';
+      _syncJsonFromBody();
+      notifyListeners();
+      return;
     }
     // Порт: стандартный для старого режима → убираем (дефолт нового);
     // нестандартный (юзер вводил) — сохраняем.
@@ -444,6 +512,37 @@ class DnsServerEditController extends ChangeNotifier {
       _body.remove('win_ttl');
     } else {
       _body['win_ttl'] = v;
+    }
+    _syncJsonFromBody();
+    notifyListeners();
+  }
+
+  // ─── §435 — форма DNS-сервера `tailscale` (NODE_SECTIONS.md §6) ──────
+  // Тело: `{type: tailscale, endpoint: <тег узла>, accept_default_resolvers?:
+  // true}` — без `server`/`detour`. Полей-контроллеров нет: форма читает
+  // [tailscaleEndpoint]/[acceptDefaultResolvers] прямо из body, поэтому
+  // JSON-edit отражается в ней без отдельной синхронизации.
+
+  /// Тег узла Tailscale. Пусто → ключ уходит (сервер без endpoint санитайзер
+  /// сборки выбросит с warning; форма save блокирует — см. экран).
+  void setTailscaleEndpoint(String tag) {
+    final t = tag.trim();
+    if (t.isEmpty) {
+      _body.remove('endpoint');
+    } else {
+      _body['endpoint'] = t;
+    }
+    _syncJsonFromBody();
+    notifyListeners();
+  }
+
+  /// `accept_default_resolvers`: true пишется явно, false = ключ уходит
+  /// (дефолт ядра — NXDOMAIN для имён вне tailnet).
+  void setAcceptDefaultResolvers(bool v) {
+    if (v) {
+      _body['accept_default_resolvers'] = true;
+    } else {
+      _body.remove('accept_default_resolvers');
     }
     _syncJsonFromBody();
     notifyListeners();
@@ -558,6 +657,9 @@ class DnsServerEditController extends ChangeNotifier {
     if (errorTtlCtrl.text != ettl) errorTtlCtrl.text = ettl;
     final wttl = _body['win_ttl']?.toString() ?? '';
     if (winTtlCtrl.text != wttl) winTtlCtrl.text = wttl;
+    // §435 — поля tailscale (`endpoint`/`accept_default_resolvers`) форма
+    // читает из body напрямую (геттеры), контроллеров у них нет —
+    // notifyListeners ниже перерисует пикер с новым `ValueKey`.
   }
 
   /// JSON-вкладка (inline): парс на каждый edit. Валидный объект →
@@ -593,46 +695,40 @@ class DnsServerEditController extends ChangeNotifier {
 
   // ─── Snapshot / dirty ────────────────────────────────────────────────
 
-  /// Текущее состояние формы как ref-запись стораджа. Не валидирует tag
+  /// Текущее состояние формы как ref-запись. Не валидирует tag
   /// (это делает save flow на screen State).
-  Map<String, dynamic> snapshot() {
-    final out = Map<String, dynamic>.from(initialRef);
-    out['enabled'] = _enabled;
+  DnsServerRef snapshot() {
     final desc = descCtrl.text.trim();
-    switch (kind) {
-      case ServerKind.inline:
-        out['kind'] = 'inline';
-        out['tag'] = tagCtrl.text.trim();
-        if (desc.isNotEmpty) {
-          out['description'] = desc;
-        } else {
-          out.remove('description');
-        }
-        out['body'] = _body;
-      case ServerKind.template:
-        // description в ref — только override (иначе резолв фоллбэчит).
-        if (desc.isNotEmpty && desc != canonicalDescription) {
-          out['description'] = desc;
-        } else {
-          out.remove('description');
-        }
-        if (_varValues.isNotEmpty) {
-          out['varValues'] = _varValues;
-        } else {
-          out.remove('varValues');
-        }
-      case ServerKind.preset:
-        if (desc.isNotEmpty && desc != canonicalDescription) {
-          out['description'] = desc;
-        } else {
-          out.remove('description');
-        }
-    }
-    return out;
+    // template/preset: description в ref — только override (иначе резолв
+    // фоллбэчит на canonical).
+    final override =
+        desc.isNotEmpty && desc != canonicalDescription ? desc : null;
+    return switch (kind) {
+      ServerKind.inline => DnsServerInline(
+          enabled: _enabled,
+          tag: tagCtrl.text.trim(),
+          description: desc.isNotEmpty ? desc : null,
+          body: Map<String, dynamic>.of(_body),
+        ),
+      ServerKind.template => DnsServerTemplate(
+          enabled: _enabled,
+          tag: initialRef.tag,
+          varValues: Map<String, String>.of(_varValues),
+          description: override,
+        ),
+      ServerKind.preset => DnsServerPreset(
+          enabled: _enabled,
+          tag: initialRef.tag,
+          presetId: switch (initialRef) {
+            DnsServerPreset(:final presetId) => presetId,
+            _ => '',
+          },
+          description: override,
+        ),
+    };
   }
 
-  bool isDirty() =>
-      !const DeepCollectionEquality().equals(snapshot(), initialRef);
+  bool isDirty() => snapshot() != initialRef;
 }
 
 /// §044/§117: tag/description/enabled живут на ref-level, UI-аннотации не
@@ -645,7 +741,8 @@ void _stripRefLevelFields(Map<String, dynamic> body) {
     ..remove('_origin')
     ..remove('_kind')
     ..remove('_overrides')
-    ..remove('_preset_label');
+    ..remove('_preset_label')
+    ..remove('_preset_id');
 }
 
 /// §117 задача 4 — InheritedNotifier для раздачи controller'а вниз по tree

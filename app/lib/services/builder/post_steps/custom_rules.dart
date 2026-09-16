@@ -35,6 +35,7 @@ PresetApplyResult applyPresetBundles(
   }
   return PresetApplyResult(
     extraDnsServers: state.dnsServers,
+    dnsServerPresetIdByTag: state.dnsServerPresetIdByTag,
     extraDnsRules: state.dnsRules,
     dnsRulesByPresetId: state.dnsRulesByPresetId,
     labelByPresetId: state.labelByPresetId,
@@ -49,6 +50,9 @@ PresetApplyResult applyPresetBundles(
 class _PresetSharedState {
   final List<Map<String, dynamic>> dnsServers = [];
   final Map<String, Map<String, dynamic>> dnsServerByTag = {};
+
+  /// §439 — тег DNS-сервера → `preset_id` пресета, который внёс его первым.
+  final Map<String, String> dnsServerPresetIdByTag = {};
   final List<Map<String, dynamic>> dnsRules = [];
   // §253: пресет может нести несколько DNS-правил (порядок шаблона).
   final Map<String, List<Map<String, dynamic>>> dnsRulesByPresetId = {};
@@ -221,6 +225,7 @@ List<String> _applyPresetSingle(
       final existing = state.dnsServerByTag[tag];
       if (existing == null) {
         state.dnsServerByTag[tag] = s;
+        state.dnsServerPresetIdByTag[tag] = cr.presetId;
         state.dnsServers.add(s);
       } else if (!const DeepCollectionEquality().equals(existing, s)) {
         warnings
@@ -243,6 +248,9 @@ List<String> _applyPresetSingle(
 /// title'а строки. `extraDnsRules` сохранён как legacy / debug.
 class PresetApplyResult {
   final List<Map<String, dynamic>> extraDnsServers;
+
+  /// §439 — тег сервера из [extraDnsServers] → `preset_id` его пресета.
+  final Map<String, String> dnsServerPresetIdByTag;
   final List<Map<String, dynamic>> extraDnsRules;
   final Map<String, List<Map<String, dynamic>>> dnsRulesByPresetId;
   final Map<String, String> labelByPresetId;
@@ -250,6 +258,7 @@ class PresetApplyResult {
 
   const PresetApplyResult({
     this.extraDnsServers = const [],
+    this.dnsServerPresetIdByTag = const {},
     this.extraDnsRules = const [],
     this.dnsRulesByPresetId = const {},
     this.labelByPresetId = const {},
@@ -323,18 +332,27 @@ List<String> _applySrsSingle(
   final warnings = <String>[];
   if (cr.outbound.isEmpty) return warnings;
   final requestedTag = cr.name.trim().isEmpty ? 'unnamed' : cr.name.trim();
-  final path = srsPaths[cr.id];
-  if (path == null) {
+  // ## 12 контракта (D-100) — rule_set на каждый набор правила, routing-
+  // правило одно со списком тегов. Все файлы обязаны быть в кэше: частично
+  // скачанное правило матчило бы не то, что задумал пользователь (UI держит
+  // его выключенным до полной закачки, см. routing_srs_cache.dart).
+  final cacheIds = cr.cacheIds;
+  if (cacheIds.isEmpty || cacheIds.any((c) => srsPaths[c] == null)) {
     warnings.add(
         'SRS rule "${cr.name}" skipped: no cached file (Download first).');
     return warnings;
   }
-  final tag = registry.addRuleSet({
-    'type': 'local',
-    'tag': requestedTag,
-    'format': 'binary',
-    'path': path,
-  });
+  final tags = <String>[];
+  for (var i = 0; i < cacheIds.length; i++) {
+    tags.add(registry.addRuleSet({
+      'type': 'local',
+      'tag': i == 0 ? requestedTag : '$requestedTag-${i + 1}',
+      'format': 'binary',
+      'path': srsPaths[cacheIds[i]]!,
+    }));
+  }
+  // Один набор — строка, как до ## 12: конфиг байт-в-байт прежний.
+  final Object tag = tags.length == 1 ? tags.first : tags;
   // §247 — resolve-опция: нетерминальное resolve-правило перед route (тот же
   // srs-tag и AND-фильтры). Для srs всегда eligible — домены в `.srs` возможны
   // (содержимое не парсим; IP-only лист просто не даст домена — безвредно).
@@ -622,6 +640,7 @@ UnifiedApplyResult applyAllCustomRules(
   }
   return UnifiedApplyResult(
     extraDnsServers: state.dnsServers,
+    dnsServerPresetIdByTag: state.dnsServerPresetIdByTag,
     extraDnsRules: state.dnsRules,
     dnsRulesByPresetId: state.dnsRulesByPresetId,
     labelByPresetId: state.labelByPresetId,
@@ -638,6 +657,9 @@ UnifiedApplyResult applyAllCustomRules(
 /// routing-правила); единственный источник эмиссии группы в [applyCustomDns].
 class UnifiedApplyResult {
   final List<Map<String, dynamic>> extraDnsServers;
+
+  /// §439 — тег сервера из [extraDnsServers] → `preset_id` его пресета.
+  final Map<String, String> dnsServerPresetIdByTag;
   final List<Map<String, dynamic>> extraDnsRules;
   final Map<String, List<Map<String, dynamic>>> dnsRulesByPresetId;
   final Map<String, String> labelByPresetId;
@@ -646,6 +668,7 @@ class UnifiedApplyResult {
 
   const UnifiedApplyResult({
     this.extraDnsServers = const [],
+    this.dnsServerPresetIdByTag = const {},
     this.extraDnsRules = const [],
     this.dnsRulesByPresetId = const {},
     this.labelByPresetId = const {},
@@ -658,7 +681,7 @@ class UnifiedApplyResult {
 /// AND-поля (port/port_range/packages/protocol) — для srs-режима, где эти
 /// фильтры нельзя зашить в remote rule_set.
 Map<String, dynamic> _outboundToRoute(
-  String tag,
+  Object tag,
   String outbound, {
   List<int>? ports,
   List<String>? portRanges,
@@ -673,7 +696,10 @@ Map<String, dynamic> _outboundToRoute(
   List<String>? wifiBssids,
 }) {
   final rule = <String, dynamic>{};
-  if (tag.isNotEmpty) rule['rule_set'] = tag;
+  // ## 12 — `tag`: String (один набор / headless) или List<String> (srs с
+  // несколькими наборами); sing-box принимает `rule_set` в обеих формах.
+  final hasTag = tag is List ? tag.isNotEmpty : (tag as String).isNotEmpty;
+  if (hasTag) rule['rule_set'] = tag;
   if (ports != null && ports.isNotEmpty) rule['port'] = ports;
   if (portRanges != null && portRanges.isNotEmpty) {
     rule['port_range'] = portRanges;
@@ -724,7 +750,7 @@ Map<String, dynamic> _outboundToRoute(
 /// outbound/reject — `action: resolve` + непустые опции [RuleResolve].
 /// Эмитится ПЕРЕД терминальным route (или вместо него при `only`).
 Map<String, dynamic> _resolveToRoute(
-  String tag,
+  Object tag,
   RuleResolve r, {
   List<int>? ports,
   List<String>? portRanges,

@@ -14,8 +14,13 @@ library;
 import 'dart:convert';
 
 import '../../models/auto_select.dart';
+import '../../models/custom_rule.dart';
+import '../../models/dns_ref.dart';
+import '../../models/node_link.dart';
+import '../../models/node_sections.dart';
 import '../../models/node_spec.dart';
 import '../../models/node_warning.dart';
+import '../../models/record_codec.dart';
 import '../node_hash.dart';
 import '../node_identity.dart';
 import 'json_parsers.dart';
@@ -76,7 +81,10 @@ List<NodeSpec> parseSingboxConfigs(List<Map<String, dynamic>> configs) {
   final owner = <String, Map<String, dynamic>>{};
   for (final e in indexed) {
     final before = seen.toSet();
-    _parseOne(e.value, seen: seen, synonyms: synonyms);
+    _parseOne(e.value,
+        seen: seen,
+        synonyms: synonyms,
+        pendingGroups: Map<AutoSelectSpec, _GroupRefs>.identity());
     for (final id in seen.difference(before)) {
       owner[id] = e.value;
     }
@@ -86,6 +94,7 @@ List<NodeSpec> parseSingboxConfigs(List<Map<String, dynamic>> configs) {
   // только те серверы, что закреплены за ним в проходе 1. Имена те же, позиции
   // авторские.
   final result = <NodeSpec>[];
+  final groups = Map<AutoSelectSpec, _GroupRefs>.identity();
   for (final cfg in configs) {
     result.addAll(_parseOne(
       cfg,
@@ -94,9 +103,63 @@ List<NodeSpec> parseSingboxConfigs(List<Map<String, dynamic>> configs) {
       seen: <String>{},
       synonyms: synonyms,
       ownedBy: (sig) => identical(owner[sig], cfg),
+      pendingGroups: groups,
     ));
   }
-  return result;
+  return _bindGroupMembers(result, groups);
+}
+
+/// §439 — члены группы до связывания: узел этого конфига или ключ пула
+/// соседнего элемента (§3.6), плюс число потерянных на разборе.
+typedef _GroupRefs = ({List<Object> refs, int lost});
+
+/// §439 — состав групп → ссылки на СЫРЫЕ теги членов (NODE_LINK §2.2).
+///
+/// Сырой тег узла — тег, уникализированный в источнике (`sourceNodeRawTags`):
+/// он зависит от соседей, поэтому связывание идёт по всему списку, после
+/// разбора всех элементов. Ссылка без `folder_id` — «свой контейнер»
+/// (NODE_LINK §5.1 № 8): id подписки парсер не знает, в хранение группа из
+/// тела не пишется. Ключ пула соседнего элемента берёт последний узел с этим
+/// ключом, как прежний резолв состава по ключу на сборке.
+List<NodeSpec> _bindGroupMembers(
+  List<NodeSpec> nodes,
+  Map<AutoSelectSpec, _GroupRefs> groups,
+) {
+  if (groups.isEmpty) return nodes;
+  final rawTags = sourceNodeRawTags(nodes);
+  final byKey = <String, NodeSpec>{};
+  for (final n in nodes) {
+    if (n.isGroup) continue;
+    final key = nodeIdentityKey(n);
+    if (key != null) byKey[key] = n;
+  }
+  final out = <NodeSpec>[];
+  for (final n in nodes) {
+    final pending = n is AutoSelectSpec ? groups[n] : null;
+    if (n is! AutoSelectSpec || pending == null) {
+      out.add(n);
+      continue;
+    }
+    final links = <NodeLink>[];
+    var lost = pending.lost;
+    for (final ref in pending.refs) {
+      final node = ref is NodeSpec ? ref : byKey[ref];
+      final raw = node == null ? null : rawTags[node];
+      if (raw == null) {
+        lost++;
+        continue;
+      }
+      final link = NodeLink(tag: raw);
+      if (!links.contains(link)) links.add(link);
+    }
+    if (lost > 0) n.warnings.add(GroupMemberMissingWarning(lost));
+    // §5.1 — пустой urltest роняет старт ядра: группу без членов не выпускаем.
+    if (links.isEmpty) continue;
+    out.add(n.copyWith(membership: ExplicitMembers(links))
+      ..sourceCompact = n.sourceCompact
+      ..sourceExtended = n.sourceExtended);
+  }
+  return out;
 }
 
 /// §368 §3.2 — сколько payload-элементов описывает конфиг. Служебные и группы
@@ -131,6 +194,7 @@ List<NodeSpec> _parseOne(
   Map<String, dynamic> config, {
   required Set<String> seen,
   required Map<String, String> synonyms,
+  required Map<AutoSelectSpec, _GroupRefs> pendingGroups,
   bool Function(String signature)? ownedBy,
 }) {
   final entries = _allEntries(config);
@@ -264,11 +328,169 @@ List<NodeSpec> _parseOne(
   // §5 — группы ПОСЛЕ узлов: порядок списка = порядок появления, группа логично
   // идёт за своими членами.
   for (final g in groups) {
-    final spec = _groupToSpec(g, nodeByTag, synonyms);
+    final spec = _groupToSpec(g, nodeByTag, synonyms, pendingGroups);
     if (spec != null) result.add(spec..sourceExtended = extended);
   }
 
+  // §435 / контракт ## 13 (NODE_SECTIONS.md §6, §7) — целый конфиг как
+  // источник связки: если конфиг дал РОВНО ОДИН не-групповой узел, его
+  // DNS-серверы, DNS-правила и правила маршрута извлекаются в
+  // `importedSections`; документ с явным `sections` читается кодеком. Хозяин
+  // секций — контейнер: контроллер переносит их в `UserServer`/`FolderMember`
+  // при добавлении, у подписок они не применяются.
+  final payload = [for (final n in result) if (!n.isGroup) n];
+  if (payload.length == 1) {
+    final node = payload.single;
+    final explicit = config['sections'];
+    if (explicit is Map) {
+      final dropped = <String>[];
+      node.importedSections =
+          NodeSections.fromJson(explicit, dropped: dropped);
+      for (final d in dropped) {
+        node.warnings.add(SectionsRecordDroppedWarning(d));
+      }
+      if (config['dns'] is Map || config['route'] is Map) {
+        node.warnings.add(const SectionsConflictWarning());
+      }
+    } else {
+      _extractInto(node, config, nodeByTag);
+    }
+  } else if (payload.length > 1 && config['sections'] is! Map) {
+    // §437 — многоузловой конфиг («рабочий конфиг из другого клиента»:
+    // endpoint + прокси + `final` на прокси). Узлу Tailscale связка нужна
+    // так же, как одиночному: без неё трафик к 100.x уходит в `route.final`.
+    // Берём только записи с ЯВНОЙ ссылкой на тег узла — при нескольких узлах
+    // это однозначно и чужих правил не утащит. Прочие узлы — как раньше, без
+    // секций: их связка не опознаётся по ссылке (правило на прокси есть у
+    // любого конфига).
+    for (final node in payload.whereType<TailscaleSpec>()) {
+      _extractInto(node, config, nodeByTag);
+    }
+  }
+
   return result;
+}
+
+/// §435/§437 — извлечь связку [node] из [config] по его тегу в [nodeByTag]
+/// и разложить отброшенные записи в предупреждения узла. Узел без тега в
+/// карте (не попал в неё — тега не было) остаётся без секций.
+void _extractInto(
+  NodeSpec node,
+  Map<String, dynamic> config,
+  Map<String, NodeSpec> nodeByTag,
+) {
+  var rawTag = '';
+  for (final e in nodeByTag.entries) {
+    if (identical(e.value, node)) {
+      rawTag = e.key;
+      break;
+    }
+  }
+  if (rawTag.isEmpty) return;
+  final dropped = <String>[];
+  node.importedSections = extractNodeSections(config, rawTag, dropped: dropped);
+  for (final d in dropped) {
+    node.warnings.add(SectionsRecordDroppedWarning(d));
+  }
+}
+
+/// §435 (NODE_SECTIONS.md §6) — связка узла [nodeTag] из целого конфига:
+/// DNS-серверы, у которых `detour` или `endpoint` равны тегу узла (или уже
+/// `@self`); DNS-правила, чей `server` — один из взятых серверов; правила
+/// маршрута, чей `outbound` равен тегу узла. Ссылки на тег переписываются в
+/// `@self`, теги серверов — в `@{self}-<тег>`. Всё остальное в `dns`/`route`
+/// игнорируется, как раньше.
+///
+/// Имя извлечённого правила — `name` из тела, если провайдер его дал (в
+/// sing-box такого поля нет, но лаунчер его читает так же), иначе
+/// `@{self} rule N` (N — порядковый среди правил этого узла, с 1); `num` —
+/// `945 + i` в порядке извлечения (паритет с лаунчером, ответ 14.09.2026).
+/// Незнакомые кодеку ключи тела (`rule_set` на набор конфига и т.п.)
+/// теряются: кодек их не хранит.
+NodeSections? extractNodeSections(
+  Map<String, dynamic> config,
+  String nodeTag, {
+  List<String>? dropped,
+}) {
+  bool refersNode(Object? v) => v == nodeTag || v == kSelfPlaceholder;
+
+  final servers = <DnsServerInline>[];
+  final renamed = <String, String>{}; // тег из конфига → @{self}-тег
+  final dns = config['dns'];
+  if (dns is Map) {
+    final rawServers = dns['servers'];
+    if (rawServers is List) {
+      for (final s in rawServers.whereType<Map>()) {
+        final tag = s['tag']?.toString() ?? '';
+        if (tag.isEmpty) continue;
+        if (!refersNode(s['detour']) && !refersNode(s['endpoint'])) continue;
+        final body = Map<String, dynamic>.of(s.cast<String, dynamic>())
+          ..remove('tag');
+        if (refersNode(body['detour'])) body['detour'] = kSelfPlaceholder;
+        if (refersNode(body['endpoint'])) body['endpoint'] = kSelfPlaceholder;
+        final newTag = '$kSelfInlinePlaceholder-$tag';
+        renamed[tag] = newTag;
+        servers.add(DnsServerInline(enabled: true, tag: newTag, body: body));
+      }
+    }
+  }
+
+  final dnsRules = <DnsRuleInline>[];
+  if (dns is Map && renamed.isNotEmpty) {
+    final rawRules = dns['rules'];
+    if (rawRules is List) {
+      for (final r in rawRules.whereType<Map>()) {
+        final srv = r['server'];
+        if (srv is! String || !renamed.containsKey(srv)) continue;
+        final body = Map<String, dynamic>.of(r.cast<String, dynamic>());
+        body['server'] = renamed[srv];
+        dnsRules.add(DnsRuleInline(name: '', rule: body, enabled: true));
+      }
+    }
+  }
+
+  final rules = <CustomRule>[];
+  final route = config['route'];
+  if (route is Map) {
+    final rawRules = route['rules'];
+    if (rawRules is List) {
+      var n = 0;
+      for (final r in rawRules.whereType<Map>()) {
+        if (!refersNode(r['outbound'])) continue;
+        final body = Map<String, dynamic>.of(r.cast<String, dynamic>());
+        body['outbound'] = kSelfPlaceholder;
+        final givenName = body.remove('name');
+        final name = givenName is String && givenName.trim().isNotEmpty
+            ? givenName.trim()
+            : '$kSelfInlinePlaceholder rule ${n + 1}';
+        final read = ruleFromRecord({
+          'kind': 'inline',
+          'name': name,
+          'enabled': true,
+          'num': kNodeRuleDefaultNum + n,
+          'body': body,
+        });
+        final rule = read.value;
+        if (rule == null) {
+          dropped?.add('route.rules: ${read.dropped}');
+          continue;
+        }
+        // Норма B3: `rule_set` конфига и любой незнакомый матчер не
+        // переносятся; вырезать ключ молча нельзя (правило стало бы
+        // match-all на узел) — запись отбрасывается целиком.
+        if (read.unknownKeys.isNotEmpty) {
+          dropped?.add(
+              'route.rules → "$name": body keys not supported here: ${read.unknownKeys.join(', ')}');
+          continue;
+        }
+        rules.add(rule);
+        n++;
+      }
+    }
+  }
+
+  final out = NodeSections(rules: rules, dnsServers: servers, dnsRules: dnsRules);
+  return out.isEmpty ? null : out;
 }
 
 /// §368 §3.3 — имя узла.
@@ -421,10 +643,14 @@ NodeSpec? _buildChain(
 ///
 /// `null`, если состав пуст: пустой `urltest` роняет старт ядра
 /// (`server_list_build.dart`), не эмитим вовсе.
+///
+/// §439 — состав копится в [groups] и связывается со ссылками после разбора
+/// всей подписки ([_bindGroupMembers]): сырой тег члена зависит от соседей.
 AutoSelectSpec? _groupToSpec(
   Map<String, dynamic> group,
   Map<String, NodeSpec> nodeByTag,
   Map<String, String> synonyms,
+  Map<AutoSelectSpec, _GroupRefs> groups,
 ) {
   final warnings = <NodeWarning>[];
   final type = group['type']?.toString() ?? '';
@@ -442,6 +668,7 @@ AutoSelectSpec? _groupToSpec(
       : const <String>[];
 
   final keys = <String>[];
+  final refs = <Object>[];
   var lost = 0;
   for (final tag in memberTags) {
     // Свой узел этого конфига — приоритет; иначе тег соседнего элемента через
@@ -454,10 +681,14 @@ AutoSelectSpec? _groupToSpec(
       lost++;
       continue;
     }
-    if (!keys.contains(key)) keys.add(key);
+    if (keys.contains(key)) continue;
+    keys.add(key);
+    refs.add(node ?? key);
   }
-  if (lost > 0) warnings.add(GroupMemberMissingWarning(lost));
-  if (keys.isEmpty) return null;
+  if (keys.isEmpty) {
+    if (lost > 0) warnings.add(GroupMemberMissingWarning(lost));
+    return null;
+  }
 
   final label = group['tag']?.toString() ?? '';
   const d = AutoSelectParams();
@@ -476,17 +707,18 @@ AutoSelectSpec? _groupToSpec(
     mode: d.mode,
   );
 
-  return AutoSelectSpec(
+  final spec = AutoSelectSpec(
     id: newUuidV4(),
     tag: tagFromLabel(label, 'urltest', 'auto', 0),
     label: label,
-    membership: ExplicitMembers(keys),
+    // Ссылки появятся в [_bindGroupMembers]; синонимы явному составу не нужны
+    // — они ограничивают пул правила (§321 P6).
+    membership: const ExplicitMembers([]),
     params: params,
-    // §302 — ремап синонимов при мутации узлов; для ExplicitMembers
-    // scoped-ветка resolveAutoSelectMembers не выполняется.
-    tagSynonyms: Map.of(synonyms),
     warnings: warnings,
   )..sourceCompact = _prettyJson(group);
+  groups[spec] = (refs: refs, lost: lost);
+  return spec;
 }
 
 /// Число из значения провайдера: `7`, `7.0` или `"7"`. Иначе `null`.

@@ -1,4 +1,5 @@
 import '../../../controllers/subscription_controller.dart';
+import '../../../models/codec/node_link_record.dart';
 import '../../../models/import_rule.dart';
 import '../../../models/server_list.dart';
 import '../../url_mask.dart';
@@ -31,16 +32,20 @@ Map<String, Object?> serializeSubEntry(
     // Full detour policy (task 006 — per-server detour toggles).
     // `override_detour` оставлен top-level для backward-compat клиентов,
     // дополнительно группируем в nested object для полного view'а.
-    'override_detour': e.overrideDetour,
+    // §439 (D-112) — ссылка на узел `{folder_id?, tag}`, нет — null.
+    'override_detour': nodeLinkToRecordOrNull(e.overrideDetour),
     'detour_policy': {
       'register_detour_servers': e.registerDetourServers,
       'register_detour_in_auto': e.registerDetourInAuto,
       'use_detour_servers': e.useDetourServers,
-      'override_detour': e.overrideDetour,
+      'override_detour': nodeLinkToRecordOrNull(e.overrideDetour),
     },
     // §346 — настройки, живущие только у SubscriptionServers. У UserServer /
     // FolderServers полей нет (их никто не фетчит) — ключи не кладём вовсе,
     // чтобы `null` не читался как «Default identity» у записи, где режима нет.
+    // §435 — секции одиночного узла (контракт ## 13), read-only, как
+    // хранятся (с плейсхолдерами `@self`). У подписки/папки ключа нет.
+    if (list is UserServer) 'sections': list.sections?.toJson(),
     if (list is SubscriptionServers) ...{
       'on_update_action': list.onUpdateAction.name, // §323
       // §289 — null = режим Default (глобальная идентичность §118).
@@ -99,9 +104,11 @@ Map<String, Object?> serializeFolderMember(
     {
       'index': index,
       'enabled': m.enabled,
-      'detour': m.detour, // §237 — личный detour ('' = нет)
+      // §237 — личный detour; §439 — ссылка `{folder_id?, tag}`, нет — null.
+      'detour': nodeLinkToRecordOrNull(m.detour),
       'tag': m.node?.tag,
       'protocol': m.node?.protocol,
       'broken': m.node == null,
       if (reveal) 'raw': m.raw,
+      'sections': m.sections?.toJson(), // §435 — read-only
     };

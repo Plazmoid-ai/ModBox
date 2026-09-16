@@ -9,7 +9,7 @@ Related documents:
 - **`AGENTS.md`** — the agent's general scope and the rules for working with git and branches.
 - **`RELEASE_NOTES.md`** — the release body (in the repo root) that CI uploads as `body_path` for the GitHub Release.
 - **`docs/releases/vX.Y.Z.md`** — the archive of per-version release notes.
-- **[`FDROID.md`](FDROID.md)** — publishing on F-Droid: what to do in the catalogue after shipping a release (a separate MR on GitLab; screenshots and descriptions are read from the tag's commit, not from the branch).
+- **[`FDROID.md`](FDROID.md)** — publishing on F-Droid: the catalogue picks up new tags on its own; fastlane (changelogs, screenshots, descriptions) is read from the tag's commit, not from the branch, so it must be in place **before** the tag.
 
 ---
 
@@ -19,7 +19,8 @@ CI (`.github/workflows/ci.yml`) triggers on:
 
 | Event | What runs |
 |---|---|
-| push of a `v*` tag | `meta` + `checks` + `android` + `release` + `publish-manifest` (a full release) |
+| push of a `v*` tag | `meta` + `checks` + `android` + `release` + `google-play` + `publish-manifest` (a full release) |
+| push of a `vX.Y.Z-rc.N` tag | `meta` + `checks` + `android` + `release` as a **pre-release**; `google-play` and `publish-manifest` are skipped |
 | push to `develop` / `main` | `checks` (analyze and tests only) |
 | PR into `develop` / `main` | `checks` |
 | `workflow_dispatch` + `run_mode=checks` | `checks` |
@@ -33,6 +34,13 @@ make sure the file holds **exactly** the notes meant for this release.
 After the release the bot step `publish-manifest` pushes a
 `chore(release): update docs/latest.json ... [skip ci]` commit to `main`. That is
 the only automatic commit allowed in `main` besides the release merge commits.
+
+A release candidate (`vX.Y.Z-rc.N`, §436) does not reach users. The GitHub
+release is marked pre-release, so it never becomes Latest and
+`/releases/latest`, which UpdateChecker polls, keeps returning the previous
+stable. `docs/latest.json` is not updated, and nothing goes to Google Play.
+The APKs are on the release page for testers. A hotfix `vX.Y.Z-hotfixN` is a
+full release.
 
 ---
 
@@ -84,6 +92,7 @@ After every release, `main` is merged back into `develop` (§2.6); otherwise the
    - `README.md`, `README.ru.md` — if user-visible features changed.
    - Task specs (`docs/spec/features/NNN*/spec.md`) — `status: released`.
    - `docs/releases/vX.Y.Z.md` — a draft of the per-version archive (it can be prepared as development goes).
+   - `fastlane/metadata/android/{en-US,ru}/changelogs/<versionCode>.txt` — see §2.3 step 4.
 4. **A local smoke test of the release APK** (recommended before tagging):
    ```bash
    scripts/build-local-apk.sh   # release, arm64 only
@@ -163,7 +172,15 @@ Nothing is required — versioning is computed entirely at build time
    `v2.17.0` is the reference for the format. Inside the sections, follow the previous releases: breaking → highlights → tools/process → tests. The Install section and the link to the previous release are shared, outside the spoilers, and duplicated in both languages.
 2. Copy the finished file to `docs/releases/vX.Y.Z.md` (the per-version archive, useful for cross-links from future releases and from specs).
 3. Check that nothing is left over from the previous version: the `# L×Box vX.Y.Z` heading, the number in the `adb install` command, the link at the bottom `Previous release / Предыдущий релиз: [v...](docs/releases/v...md).` And make sure both language sections describe the same set of changes (during edits it is easy to update one and forget the other).
-4. One commit into `develop`:
+4. F-Droid changelogs — `fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` and the same under `ru/`, one file per build block (armeabi-v7a and arm64-v8a), ≤ 500 characters each, plain text, one paragraph:
+   ```bash
+   for abi in armeabi-v7a arm64-v8a; do
+     c=$(scripts/version-code.sh X.Y.Z $abi)
+     echo "$c"   # e.g. 22301501 / 22301502
+   done
+   ```
+   F-Droid reads fastlane from the **tag's commit**. A changelog added to `develop` after the tag never reaches the catalogue: v2.23.0 and v2.23.1 show an empty "What's New" for exactly this reason. Count characters with `python3 -c 'print(len(open(f).read()))'`, not `wc -m` (bytes on macOS).
+5. One commit into `develop`:
    ```
    docs(release): vX.Y.Z notes
    ```
@@ -209,10 +226,13 @@ git push origin vX.Y.Z
 ```
 
 > ⚠️ The tag now sits on a merge commit in `main` that is **not an ancestor** of
-> `develop`. §2.6 is mandatory, otherwise the next release starts from a history
-> that has fallen behind.
+> `develop`. Do §2.6 **right now, before waiting for CI** (maintainer's decision,
+> 15.09.2026): bringing `main` back into `develop` does not depend on the build,
+> and a merge postponed "until CI is green" is exactly the step that got skipped.
 
 ### 2.5. Wait for CI
+
+Start §2.6 first — it does not wait for this step.
 
 ```bash
 RUN_ID="$(gh run list --workflow=ci.yml --limit 1 --json databaseId -q '.[0].databaseId')"
@@ -225,14 +245,21 @@ At the finish line, expect:
 - The release body is the content of `RELEASE_NOTES.md` as of the tag.
 - `docs/latest.json` has been updated by the bot commit in `main` (`[skip ci]`).
 
-### 2.6. Post-flight: bring main back into develop
+### 2.6. Post-flight: bring main back into develop — immediately after the tag
 
-After a release there are two commits in `main` that are not ancestors of
-`develop`:
-1. The merge commit from §2.4.
-2. The bot commit `chore(release): update docs/latest.json → vX.Y.Z [skip ci]`.
+Run this **straight after `git push origin vX.Y.Z`**, in parallel with CI, not
+after it. The only commit that matters for `git describe` on `develop` is the
+release merge commit from §2.4 — it carries the tag, and it exists the moment the
+tag is pushed.
 
-Merge them back:
+The bot commit `chore(release): update docs/latest.json → vX.Y.Z [skip ci]`
+lands in `main` later, when CI finishes. It touches only `docs/latest.json` and
+does not need a separate merge: the next release merges `develop` into `main`
+(§2.4) and then `main` back into `develop` (this step), which brings it along. If
+you want it in `develop` sooner, repeat the commands below after CI — the merge
+will contain only `docs/latest.json`.
+
+Merge back:
 
 ```bash
 git checkout develop
@@ -246,7 +273,7 @@ git merge --no-ff --no-commit origin/main
 # development branch again (exactly what v2.11.x moved away from). Revert it
 # BEFORE committing:
 git checkout HEAD -- app/pubspec.yaml
-git status --short   # expect only docs/latest.json
+git status --short   # expect nothing (or only docs/latest.json if CI already finished)
 
 git commit -m "chore: merge main (vX.Y.Z tag) back into develop"
 git push origin develop
@@ -274,6 +301,7 @@ the tag) in a separate `fix(ci)` commit.
 ```bash
 gh release view vX.Y.Z --json isLatest,isDraft,isPrerelease
 # → {"isLatest":true, "isDraft":false, "isPrerelease":false}
+# for vX.Y.Z-rc.N → {"isLatest":false, "isDraft":false, "isPrerelease":true}
 
 curl -sL https://raw.githubusercontent.com/Leadaxe/LxBox/main/docs/latest.json | jq '.tag'
 # → "vX.Y.Z"
@@ -296,9 +324,21 @@ curl -sL https://raw.githubusercontent.com/Leadaxe/LxBox/main/docs/latest.json |
 
 ### Google Play (AAB)
 
-For every release CI builds an `.aab` (the “Build AAB (Google Play)” step) and
-puts it in the run's artifacts. Uploading to the Play Console is **manual**:
-download the `android-aab-release` artifact and upload it to the right track.
+For every release CI builds an `.aab` (the “Build AAB (Google Play)” step),
+keeps it in the run's artifacts, and on every tag except a release candidate
+(`vX.Y.Z-rc.N`) the `google-play` job (shown as “GooglePlay”) uploads it to the Play
+Console through the Google Play Developer API (§436, see
+[`GOOGLE_PLAY.md`](GOOGLE_PLAY.md#ci-upload)). The job needs the
+`PLAY_SERVICE_ACCOUNT_JSON` secret; without it it logs a warning and skips, so
+forks build as before. Track and release status come from repository
+variables: `PLAY_TRACK` (default `production`) and `PLAY_RELEASE_STATUS`
+(default `draft` — the release lands in the console as a draft and a human
+presses Publish; `completed` sends it to review by itself). Release notes come
+from `fastlane/metadata/android/<locale>/changelogs/` — the same files F-Droid
+reads; a file over 500 characters fails the `checks` job on push, before any
+tag. `release` and `publish-manifest` do not depend on `google-play`: a failed upload
+leaves the GitHub release intact, and the AAB stays in the `android-aab-release`
+artifact for a manual upload.
 
 ⚠ **Three channels mean three incompatible signatures.**
 
@@ -322,6 +362,16 @@ When editing `ci.yml`, do not add the flag to the APK steps.
 ---
 
 ## 3. Troubleshooting
+
+### The `google-play` job is red
+
+| Log says | Cause | What to do |
+|---|---|---|
+| `PLAY_SERVICE_ACCOUNT_JSON не задан` (a warning, the job is green) | the secret is missing | `gh secret set PLAY_SERVICE_ACCOUNT_JSON < .keys/google-play-publisher.json` |
+| `The caller does not have permission`, 401 / 403 | the service account was invited less than a day ago, or lost its release permissions | wait, check Users and permissions in the console, re-run the job (`workflow_dispatch` → `release` on the tag, §219) |
+| `Version code N has already been used` | the same AAB was uploaded by hand | nothing: Play already has this build |
+| `Changes cannot be sent for review automatically` | an unfinished declaration in the console | finish it in the console, re-run the job |
+| `Нет changelog для <locale>` (a warning) | no `changelogs/<versionCode>.txt` for that locale in the release commit | the release went up without release notes for that locale; add them in the console |
 
 ### CI fails on the release job — “No APK found”
 
@@ -433,6 +483,7 @@ debug build without a clean reinstall.
 - [ ] `main` ← merge `--no-ff --no-commit develop` → `commit -m "Merge ..."` → push; the tag `vX.Y.Z` is pushed **as a separate command**. **NB:** it must be `--no-commit` plus an explicit `commit -m`, not `--no-ff -m` — the latter breaks on “empty commit message” and the tag ends up on the old commit.
 - [ ] `gh run watch` is green; the release holds four APKs `LxBox-vX.Y.Z-{arm64-v8a,armeabi-v7a,x86_64,universal}.apk`, signed release; the core version in the APK carries the `-lx` suffix and matches the pin in `app/android/libbox.version` at the tag (check against the file, not from memory).
 - [ ] `publish-manifest` ran — `docs/latest.json` is updated in `main`.
+- [ ] `google-play` ran — the release is in the Play Console on the `PLAY_TRACK` track with the tag's universal versionCode; with `PLAY_RELEASE_STATUS=draft` press **Publish** there yourself.
 - [ ] `main` is merged back into `develop` (§2.6) and pushed — **including the `git checkout HEAD -- app/pubspec.yaml` revert before the commit**.
 - [ ] `git describe` on `develop` shows `vX.Y.Z`.
 - [ ] `gh release view vX.Y.Z --json isLatest` → `{"isLatest":true}`.

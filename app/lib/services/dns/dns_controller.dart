@@ -1,8 +1,9 @@
 // ===========================================================================
 // §300 — фасад DNS-настроек под probe-эталон (ProbeController §296).
 // Контроллер владеет storage + чистой логикой; экран (dns_settings_screen)
-// становится тонким. Здесь — load()/snapshot (единственный domain-shape
-// адаптер: сырой List<Map> → §294 типы на краях) + чистые static-решения.
+// становится тонким. Здесь — load()/snapshot + чистые static-решения.
+// §439 A1 — серверы и правила DNS приходят из хранения моделями §294, сырых
+// записей контроллер не видит.
 //
 // Что НЕ входит (§300 scope-cuts): resolveDisplayedServers/ResolvedServer/
 // dns_server_resolver.dart — downstream VIEW (§294 их сохранил); контроллер их
@@ -13,6 +14,7 @@
 // ===========================================================================
 
 import '../../models/custom_rule.dart';
+import '../../models/dns_ref.dart';
 import '../../models/parser_config.dart';
 // §300 — resolver/ResolvedServer живут в screens/ (§294 их VIEW-слой);
 // контроллер их ВЫЗЫВАЕТ (pure-функции, односторонняя зависимость, не цикл).
@@ -24,10 +26,11 @@ import '../builder/preset_expand.dart';
 import '../builder/rule_set_registry.dart';
 import '../settings_storage.dart';
 import '../template_loader.dart';
+import 'node_dns_records.dart';
 
 /// §300 — типизированный снимок всего, что нужно экрану DNS-настроек. Заменяет
 /// разрозненные `setState`-присвоения `_load()`: одно значение, поля 1:1 с
-/// прежними полями State. Типизация краёв (servers/rules) — на §294.
+/// прежними полями State.
 class DnsSettingsSnapshot {
   const DnsSettingsSnapshot({
     required this.servers,
@@ -45,12 +48,15 @@ class DnsSettingsSnapshot {
     required this.dnsFinal,
     required this.defaultResolver,
     required this.resolverReset,
+    this.nodeServers = const [],
+    this.nodeRules = const [],
+    this.tailscaleEndpoints = const [],
   });
 
-  final List<Map<String, dynamic>> servers;
+  final List<DnsServerRef> servers;
   final Map<String, Map<String, dynamic>> templateByTag;
   final Map<String, Map<String, dynamic>> presetServersByTag;
-  final List<Map<String, dynamic>> rules;
+  final List<DnsRuleRef> rules;
   final Map<String, Map<String, dynamic>> templateRulesByName;
   final Map<String, List<Map<String, dynamic>>> presetRulesByPresetId;
   final Map<String, String> presetLabelByPresetId;
@@ -65,6 +71,17 @@ class DnsSettingsSnapshot {
   /// §121 — исчезнувший resolver-tag сброшен на дефолт → экран должен
   /// `markDirty()` (persist битого ref не должен дожить до билда).
   final bool resolverReset;
+
+  /// §435 — DNS-серверы/правила узлов (секции, спека §9.2) после
+  /// подстановки `@self`: read-only строки внизу списков. Производные, как
+  /// preset-серверы: в [servers]/[rules] не входят и не персистятся.
+  final List<NodeDnsServerRecord> nodeServers;
+  final List<NodeDnsRuleRecord> nodeRules;
+
+  /// §435 — опции `endpoint` для формы DNS-сервера `tailscale` (спека §9.4):
+  /// display-теги узлов Tailscale. В опции членов групп и резолверов
+  /// узловые серверы на этой волне не входят.
+  final List<TailscaleEndpointOption> tailscaleEndpoints;
 }
 
 class DnsController {
@@ -73,9 +90,8 @@ class DnsController {
   /// Читает всё состояние DNS-экрана (template + storage), резолвит серверы/
   /// правила (auto-discover/orphan-cleanup/persist-if-changed как раньше),
   /// строит превью-mirror'ы и считает §121 resolver-autoreset. Чистый
-  /// read+derive; типизация краёв через §294. Возвращает [DnsSettingsSnapshot].
+  /// read+derive. Возвращает [DnsSettingsSnapshot].
   ///
-  /// (Тело вынесено verbatim из `dns_settings_screen._load` — §300 D1.)
   static Future<DnsSettingsSnapshot> load() async {
     final template = await TemplateLoader.load();
     final vars = await SettingsStorage.getAllVars();
@@ -116,6 +132,9 @@ class DnsController {
     final presetLabelByPresetId = <String, String>{};
     final presetDnsEnable = <String, bool>{}; // §257
     final presetServersWithLabel = <Map<String, dynamic>>[];
+    // §439 — тег сервера → `preset_id` пресета, внёсшего его первым (как
+    // дедуп серверов сборки).
+    final presetIdByServerTag = <String, String>{};
     final activeRules = await SettingsStorage.getCustomRules();
     final allPresets = template.selectableRules;
     final activePresetIdsWithDnsRule = <String>{};
@@ -144,6 +163,10 @@ class DnsController {
       }
       presetLabelByPresetId[cr.presetId] = match.label;
       for (final s in fragments.dnsServers) {
+        final tag = s['tag'];
+        if (tag is String && tag.isNotEmpty) {
+          presetIdByServerTag.putIfAbsent(tag, () => cr.presetId);
+        }
         final annotated = Map<String, dynamic>.from(s)
           ..['_preset_label'] = match.label;
         presetServersWithLabel.add(annotated);
@@ -163,9 +186,14 @@ class DnsController {
         if (s['tag'] is String && (s['tag'] as String).isNotEmpty)
           s['tag'] as String: s,
     };
+    // `_preset_id` — для Reset в редакторе сервера (пресет известен, когда
+    // override схлопывается обратно в preset-ref).
+    presetServersByTag.forEach(
+        (tag, s) => s['_preset_id'] = presetIdByServerTag[tag]);
     final resolvedServers = await resolveDnsServersList(
       templateServers: templateServersRaw,
       presetServersByTag: presetServersByTag,
+      presetIdByTag: presetIdByServerTag,
     );
 
     // §117: реальные тела DNS-mirror'ов (rule-источники) для превью.
@@ -240,6 +268,10 @@ class DnsController {
       resolverReset = true;
     }
 
+    // §435 — DNS-записи узлов (секции) и узлы Tailscale для пикера endpoint:
+    // производные из списков источников, в `_servers`/`_rules` не кладутся.
+    final nodeDns = collectNodeDnsRecords(await SettingsStorage.getServerLists());
+
     return DnsSettingsSnapshot(
       servers: resolvedServers,
       templateByTag: templateByTag,
@@ -259,16 +291,24 @@ class DnsController {
       dnsFinal: dnsFinal,
       defaultResolver: defaultResolver,
       resolverReset: resolverReset,
+      nodeServers: nodeDns.servers,
+      nodeRules: nodeDns.rules,
+      tailscaleEndpoints: nodeDns.tailscaleEndpoints,
     );
   }
 
-  /// §300 D3 — staged-запись DNS-секции (servers/rules/dns-vars). Byte-identical
-  /// прежнему `stageChanges` (§221 round-trip). custom_rules НЕ входит — это
-  /// §295 (device-required). Всегда `flush: false` — дисковый flush делает
-  /// `LazyPersistMixin` экрана на dispose/paused.
+  /// §435 — перечитать только узловые записи (экран слушает
+  /// `SubscriptionController`: правка узла при открытом DNS-экране обновляет
+  /// read-only строки и опции endpoint без полного [load]).
+  static Future<NodeDnsRecords> loadNodeRecords() async =>
+      collectNodeDnsRecords(await SettingsStorage.getServerLists());
+
+  /// §300 D3 — staged-запись DNS-секции (servers/rules/dns-vars). custom_rules
+  /// НЕ входит — это §295 (device-required). Всегда `flush: false` — дисковый
+  /// flush делает `LazyPersistMixin` экрана на dispose/paused.
   static Future<void> stage({
-    required List<Map<String, dynamic>> servers,
-    required List<Map<String, dynamic>> rules,
+    required List<DnsServerRef> servers,
+    required List<DnsRuleRef> rules,
     required Map<String, Map<String, dynamic>> templateRulesByName,
     required Map<String, List<Map<String, dynamic>>> presetRulesByPresetId,
     required String strategy,

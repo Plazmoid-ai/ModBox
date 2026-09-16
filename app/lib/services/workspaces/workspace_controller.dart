@@ -84,6 +84,12 @@ class WorkspaceController extends ChangeNotifier {
       await SettingsStorage.flushToDisk();
       final changed = await _store.load(target);
       if (!changed) return WorkspaceLoadOutcome.alreadyCurrent;
+      // §447 — на сцене настройки другого слота, конфиг от прежнего: флаг
+      // поднимается явно, ДО перечитывания. Одного mtime-признака (шаг 8)
+      // мало: flush выше выровнял mtime конфига в ту же секунду, что и touch
+      // настроек, а любой `_save()` при снятом флаге выравнивает его снова —
+      // новый HomeScreen видел «чисто» и стартовал с конфигом прежнего слота.
+      SettingsStorage.markConfigDirty();
       await _reloadStateFromDisk();
       _manifest = await _store.readManifest();
       _pendingAutoConnect = wasUp;
@@ -119,6 +125,8 @@ class WorkspaceController extends ChangeNotifier {
   /// не принадлежат `HomeScreen`. Каждый best-effort — как и в `main()`:
   /// провал одного не должен оставить сцену наполовину перечитанной.
   static Future<void> _reloadStateFromDisk() async {
+    // Первое чтение после сброса кэша идёт через `_load()`: файл слота формы
+    // 2.23.2 мигрирует там же (§439 §3.3).
     SettingsStorage.clearCache();
     await _step('native prefs', SettingsStorage.bootstrapAndSyncNativePrefs);
     await _step('locale', LocaleController.I.reloadFromStorage);
@@ -129,8 +137,6 @@ class WorkspaceController extends ChangeNotifier {
         varDefaults: {for (final v in t.vars) v.name: v.defaultValue},
       );
     });
-    await _step(
-        'chain order migration', SettingsStorage.migrateChainOrderIfNeeded);
     await _step('automation gates', AutomationEventEmitter.I.reload);
   }
 

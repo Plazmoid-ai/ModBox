@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path_provider/path_provider.dart';
 
 import '../app_log.dart';
+import '../settings_storage_keys.dart' show kStorageVersionKey;
+import '../tailscale_state/state_store.dart';
 
 /// §417 — Workspaces: именованные копии состояния приложения.
 ///
@@ -49,8 +51,10 @@ class WorkspaceStore {
   ///
   /// НЕ в слоте (спека §417 п. 2.1): `singbox_config.json` (пересобирается
   /// после загрузки всегда), `cache.db` ядра (открыт под живым VPN, копия
-  /// может быть битой), `.bak`/`.tmp` io-слоя, `support_state.json`, логи,
-  /// crash/oom-репорты, тема.
+  /// может быть битой), `.bak`/`.v0.bak`/`.tmp` io-слоя, `support_state.json`,
+  /// логи, crash/oom-репорты, тема. §445: каталоги состояния Tailscale
+  /// (`tailscale/`, `tailscale_state.json`) тоже не копируются — у слота свой
+  /// набор записей индекса, его ведут [saveAs]/[rename]/[delete].
   static const List<SlotEntry> kSlotEntries = [
     SlotEntry(SlotRoot.documents, 'lxbox_settings.json', isDir: false),
     SlotEntry(SlotRoot.documents, 'rule_sets', isDir: true),
@@ -60,6 +64,7 @@ class WorkspaceStore {
   /// Имя файла настроек — для touch после загрузки и удаления `.bak`.
   static const _settingsFileName = 'lxbox_settings.json';
   static const _settingsBakName = 'lxbox_settings.json.bak';
+  static const _v0BakSuffix = '.v0.bak';
   static const _tmpSuffix = '.tmp';
 
   Future<void> _lock = Future<void>.value();
@@ -135,7 +140,13 @@ class WorkspaceStore {
         final name = _requireValid(rawName);
         var m = await readManifest();
         await _copySceneToSlot(name);
-        m = m.withSlotSaved(name, DateTime.now()).copyWith(current: name);
+        final next =
+            m.withSlotSaved(name, DateTime.now()).copyWith(current: name);
+        // §445 — личности Tailscale сцены остаются за ней: записи `current`
+        // копируются в набор [name] до записи справочника.
+        await _tailscale('save as', (root) => TailscaleStateStore.I.forkSlot(
+            root: root, from: m.current, to: name, slotNames: next.names));
+        m = next;
         await _writeManifest(m);
         AppLog.I.info('workspaces: saved scene as "$name"');
       });
@@ -193,6 +204,7 @@ class WorkspaceStore {
     final now = DateTime.now();
     await _copySceneToSlot(m.current);
     var next = m.withSlotSaved(m.current, now);
+    await _keepLegacySettingsCopy(target);
     await _copySlotToScene(target);
     await _touchSettings();
     next = next.copyWith(current: target, clearPending: true);
@@ -218,6 +230,8 @@ class WorkspaceStore {
         }
         m = m.withSlotRenamed(oldName, newName);
         if (m.current == oldName) m = m.copyWith(current: newName);
+        await _tailscale('rename', (root) => TailscaleStateStore.I
+            .renameSlot(root: root, from: oldName, to: newName));
         await _writeManifest(m);
       });
 
@@ -233,8 +247,23 @@ class WorkspaceStore {
         }
         final dir = await _slotDir(name);
         if (await dir.exists()) await dir.delete(recursive: true);
-        await _writeManifest(m.withSlotRemoved(name));
+        final next = m.withSlotRemoved(name);
+        await _writeManifest(next);
+        // §445 — личности слота: каталоги без ссылок других слотов.
+        await _tailscale('delete', (root) => TailscaleStateStore.I
+            .dropSlot(root: root, name: name, slotNames: next.names));
       });
+
+  /// §445 — операция индекса Tailscale для слотов. Best-effort: сбой не
+  /// останавливает операцию Workspaces (сироты доберёт сборка).
+  Future<void> _tailscale(
+      String what, Future<void> Function(String root) op) async {
+    try {
+      await op((await _support()).path);
+    } catch (e) {
+      AppLog.I.warning('workspaces: tailscale state on $what failed: $e');
+    }
+  }
 
   /// Размер слота на диске в байтах (для экрана управления). 0 — папки нет.
   Future<int> slotSizeBytes(String name) async {
@@ -283,6 +312,32 @@ class WorkspaceStore {
     }
     final bak = File('${(await _docs()).path}/$_settingsBakName');
     if (await bak.exists()) await bak.delete();
+  }
+
+  /// §439 §3.3 — копия исходника у слота. Файл настроек слота [name] без
+  /// `storage_version` (форма 2.23.2) копируется в
+  /// `workspaces/<имя>/lxbox_settings.json.v0.bak`, если копии там ещё нет.
+  /// Сама миграция — при чтении сцены (`_load()`), а `.v0.bak` рядом с рабочим
+  /// файлом уже может держать исходник первой миграции и копию слота не
+  /// запишет. В [kSlotEntries] копия не входит — на сцену она не едет.
+  ///
+  /// Best-effort: сбой копии загрузку не останавливает.
+  Future<void> _keepLegacySettingsCopy(String name) async {
+    try {
+      final slot = await _slotDir(name);
+      final src = File('${slot.path}/$_settingsFileName');
+      if (!await src.exists()) return;
+      final copy = File('${slot.path}/$_settingsFileName$_v0BakSuffix');
+      if (await copy.exists()) return;
+      final bytes = await src.readAsBytes();
+      final doc = jsonDecode(utf8.decode(bytes));
+      if (doc is! Map || doc.containsKey(kStorageVersionKey)) return;
+      final tmp = File('${copy.path}.${_tmpSeq++}$_tmpSuffix');
+      await tmp.writeAsBytes(bytes, flush: true);
+      await tmp.rename(copy.path);
+    } catch (e) {
+      AppLog.I.warning('workspaces: legacy settings copy of "$name" failed: $e');
+    }
   }
 
   /// Настройки заведомо новее `singbox_config.json` → bootstrap-проверка
@@ -451,6 +506,9 @@ class WorkspaceManifest {
   final WorkspacePending? pending;
 
   bool hasSlot(String name) => slots.any((s) => s.name == name);
+
+  /// Имена справочника: слоты и `current` (у «Default» папки может не быть).
+  Set<String> get names => {current, for (final s in slots) s.name};
 
   Map<String, dynamic> toJson() => {
         'version': version,

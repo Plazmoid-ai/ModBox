@@ -29,16 +29,39 @@ Future<Map<String, dynamic>> _dumpCache() async {
 /// их по умолчанию не включает (категория «Debug config» выключена, токен —
 /// секрет), и полная замена молча гасила Debug API устройства: порт и токен
 /// уходили вместе со всем `vars`. «Ключа нет в файле» = «не трогать», а не
-/// «сбросить». Ключ, который в файле есть, по-прежнему побеждает.
+/// «сбросить». Ключ, который в файле есть, по-прежнему побеждает. §447 — так
+/// же переносятся флаги стартовых промптов
+/// ([SettingsStorage.startupPromptVarKeys]).
 Future<List<String>> _replaceRaw(
   Map<String, dynamic> snapshot, {
   bool merge = false,
 }) async {
-  final clean = jsonDecode(jsonEncode(snapshot)) as Map<String, dynamic>;
-
   // Allowlist для vars: кодовые флаги ∪ имена vars из локального template
   // (template в бэкап не входит — резолвим против зашитого в APK, §159).
   final template = await TemplateLoader.load();
+
+  // §439 §3.4 — снимок формы 2.23.2 мигрирует до allowlist'а. Входы бэкапа и
+  // Debug API мигрируют раньше (им нужен отчёт); здесь это no-op, а вызов
+  // страхует прочих вызывающих.
+  final doc = jsonDecode(jsonEncode(snapshot)) as Map<String, dynamic>;
+  final migration = migrateStorageDoc(
+    doc,
+    presetIdByDnsServerTag: presetIdsByDnsServerTag(template.selectableRules),
+    subscriptionBodies: storageDocNeedsMigration(doc)
+        ? await _subscriptionBodiesForMigration(doc)
+        : const {},
+    recordVars: RecordVarDecls.fromTemplate(template), // §441 — Н2–Н4
+  );
+  if (migration.info.isNotEmpty) {
+    AppLog.I.info('replaceRaw: snapshot migrated to storage_version '
+        '${storageDocVersion(migration.doc)} — ${migration.summary}');
+  }
+  if (migration.warnings.isNotEmpty) {
+    AppLog.I.warning('replaceRaw: snapshot migration losses: '
+        '${migration.warnings.join('; ')}');
+  }
+  final clean = migration.doc;
+
   final allowedVars =
       SettingsStorage.allowedVarKeys(template.vars.map((v) => v.name));
 
@@ -75,7 +98,10 @@ Future<List<String>> _replaceRaw(
     if (currentVars is Map) {
       final outVars = (filtered['vars'] as Map<String, dynamic>?) ??
           <String, dynamic>{};
-      for (final k in SettingsStorage.debugApiVarKeys) {
+      for (final k in const {
+        ...SettingsStorage.debugApiVarKeys,
+        ...SettingsStorage.startupPromptVarKeys, // §447
+      }) {
         if (!outVars.containsKey(k) && currentVars.containsKey(k)) {
           outVars[k] = currentVars[k];
         }

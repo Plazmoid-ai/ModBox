@@ -7,6 +7,7 @@ import '../../models/custom_rule.dart';
 import '../../models/parser_config.dart';
 import '../../services/l10n/locale_controller.dart';
 import '../../services/preset_on_change.dart';
+import '../../services/record_vars.dart';
 import '../../services/relative_time.dart';
 import '../../services/rule_set_downloader.dart';
 import '../../services/settings_storage.dart';
@@ -259,7 +260,8 @@ class CustomRuleEditController extends ChangeNotifier {
     sourceIpCidrCtrl = TextEditingController(text: r.sourceIpCidrs.join('\n'));
     portCtrl = TextEditingController(text: r.ports.join('\n'));
     portRangeCtrl = TextEditingController(text: r.portRanges.join('\n'));
-    srsUrlCtrl = TextEditingController(text: r.srsUrl);
+    // ## 12 — по одному URL на строку.
+    srsUrlCtrl = TextEditingController(text: r.srsUrls.join('\n'));
     // §366 — TTL есть только у srs-правил; у прочих остаётся дефолт и в
     // сохранение не идёт.
     if (r is CustomRuleSrs) _srsTtlHours = r.updateIntervalHours;
@@ -287,7 +289,7 @@ class CustomRuleEditController extends ChangeNotifier {
     }
 
     if (_kind == CustomRuleKind.srs) {
-      RuleSetDownloader.isCached(r.id).then((cached) {
+      _allSrsCached(r).then((cached) {
         if (_disposed) return;
         _srsState =
             cached ? SrsDownloadState.cached : SrsDownloadState.none;
@@ -316,11 +318,10 @@ class CustomRuleEditController extends ChangeNotifier {
   Future<void> _loadDnsServerTags() async {
     final stored = await SettingsStorage.getDnsServers();
     final template = await TemplateLoader.load();
-    final tags = <String>{};
-    for (final s in stored) {
-      final tag = s['tag']?.toString();
-      if (tag != null && tag.isNotEmpty) tags.add(tag);
-    }
+    final tags = <String>{
+      for (final s in stored)
+        if (s.tag.isNotEmpty) s.tag,
+    };
     // §279 — typed DnsOptionsModel вместо raw-скана dns_options.servers.
     tags.addAll(template.dnsOptionsModel.servers.map((s) => s.tag));
     if (_disposed) return;
@@ -535,8 +536,33 @@ class CustomRuleEditController extends ChangeNotifier {
   }
 
   void setVarValue(String name, String val) {
-    _varsValues[name] = val;
+    _putVarValue(name, val);
     notifyListeners();
+  }
+
+  /// §441 (Н3/Н4) — запись значения переменной пресета: подрезанное;
+  /// пустое или равное умолчанию объявления снимает ключ (выбор умолчания —
+  /// сброс к шаблону). Имя без объявления (универсальная замена цели
+  /// `outbound`) пишется без сверки с умолчанием.
+  void _putVarValue(String name, String val) {
+    WizardVar? decl;
+    for (final v in preset?.vars ?? const <WizardVar>[]) {
+      if (v.name == name && !v.isRef) {
+        decl = v;
+        break;
+      }
+    }
+    final stored = recordVarValueToStore(
+      val,
+      decl == null
+          ? null
+          : RecordVarDecl(name: decl.name, defaultValue: decl.defaultValue),
+    );
+    if (stored == null) {
+      _varsValues.remove(name);
+    } else {
+      _varsValues[name] = stored;
+    }
   }
 
   /// §117: тоггл DNS-опции. Выбранный serverTag сохраняется при выключении
@@ -585,14 +611,23 @@ class CustomRuleEditController extends ChangeNotifier {
   // ─── SRS download (used by SrsSection cloud-button) ──────────────────
 
   Future<void> downloadSrs() async {
-    final url = srsUrlCtrl.text.trim();
-    if (url.isEmpty) return;
+    final urls = parseSrsUrlsText(srsUrlCtrl.text);
+    if (urls.isEmpty) return;
     _srsState = SrsDownloadState.loading;
     notifyListeners();
-    final path = await RuleSetDownloader.download(initial.id, url);
-    if (_disposed) return;
-    _srsState =
-        path != null ? SrsDownloadState.cached : SrsDownloadState.error;
+    // ## 12 — все наборы по порядку в свои файлы кэша; первый провал =
+    // провал правила (частично скачанное не включаем).
+    var ok = true;
+    for (var i = 0; i < urls.length; i++) {
+      final path = await RuleSetDownloader.download(
+          CustomRuleSrs.cacheIdAt(initial.id, i), urls[i]);
+      if (_disposed) return;
+      if (path == null) {
+        ok = false;
+        break;
+      }
+    }
+    _srsState = ok ? SrsDownloadState.cached : SrsDownloadState.error;
     notifyListeners();
     // §366 — обновить строку «Updated …»: метаданные записал downloader.
     unawaited(_loadSrsMeta(initial.id));
@@ -602,12 +637,28 @@ class CustomRuleEditController extends ChangeNotifier {
   /// трогая правило в storage. _enabled сбрасывается — без cache
   /// правило не может работать.
   Future<void> clearSrsCache() async {
-    await RuleSetDownloader.delete(initial.id);
+    // ## 12 — файлы всех наборов: и сохранённых, и набранных в поле (юзер
+    // мог скачать новый список, не сохраняя правило).
+    final saved = initial.srsUrls.length;
+    final typed = parseSrsUrlsText(srsUrlCtrl.text).length;
+    final n = saved > typed ? saved : typed;
+    for (var i = 0; i < (n == 0 ? 1 : n); i++) {
+      await RuleSetDownloader.delete(CustomRuleSrs.cacheIdAt(initial.id, i));
+    }
     if (_disposed) return;
     _srsState = SrsDownloadState.none;
     _enabled = false;
     _srsLastUpdatedText = null; // §366 — метаданные ушли вместе с файлом
     notifyListeners();
+  }
+
+  /// ## 12 — правило «скачано», когда есть файлы ВСЕХ его наборов.
+  static Future<bool> _allSrsCached(CustomRule r) async {
+    if (r is! CustomRuleSrs || r.srsUrls.isEmpty) return false;
+    for (final cacheId in r.cacheIds) {
+      if (!await RuleSetDownloader.isCached(cacheId)) return false;
+    }
+    return true;
   }
 
   /// На URL-edit: если состояние было `error`, сбрасываем в `none`
@@ -639,7 +690,7 @@ class CustomRuleEditController extends ChangeNotifier {
     }
 
     if (!val) {
-      _varsValues[v.name] = 'false';
+      _putVarValue(v.name, 'false');
       notifyListeners();
       _applyPresetOnChange(); // §266 — dns_enable вход формулы on_change
       return false;
@@ -651,7 +702,7 @@ class CustomRuleEditController extends ChangeNotifier {
     }).toList();
 
     if (controlled.isEmpty) {
-      _varsValues[v.name] = 'true';
+      _putVarValue(v.name, 'true');
       notifyListeners();
       _applyPresetOnChange(); // §266
       return false;
@@ -674,7 +725,7 @@ class CustomRuleEditController extends ChangeNotifier {
     if (_disposed) return false;
 
     if (missing.isEmpty) {
-      _varsValues[v.name] = 'true';
+      _putVarValue(v.name, 'true');
       _presetSrsPaths = {..._presetSrsPaths};
       notifyListeners();
       _applyPresetOnChange(); // §266
@@ -699,7 +750,7 @@ class CustomRuleEditController extends ChangeNotifier {
 
     _boolVarDownloading.remove(v.name);
     if (!anyFailed) {
-      _varsValues[v.name] = 'true';
+      _putVarValue(v.name, 'true');
       _presetSrsPaths = {..._presetSrsPaths, ...newPaths};
       _applyPresetOnChange(); // §266
     }
@@ -714,8 +765,8 @@ class CustomRuleEditController extends ChangeNotifier {
   ///
   /// §381 — `orderNum` (ось §370) переносится из `initial` во ВСЕ ветки:
   /// редактор позицию правила не меняет, а потеря номера читалась как две
-  /// разные жалобы. Без него `isDirty()` (сравнение json'ов) видел разницу по
-  /// ключу `num` ещё до первой правки — «Save changes?» на пустом выходе; а
+  /// разные жалобы. Без него `isDirty()` (равенство моделей) видел разницу по
+  /// `orderNum` ещё до первой правки — «Save changes?» на пустом выходе; а
   /// сохранённое правило уезжало в storage с `num == null` и при следующей
   /// загрузке экрана размечалось `markRuleOrder` заново от `kUserRuleNumStart`,
   /// то есть прыгало в начало пользовательской зоны.
@@ -747,7 +798,7 @@ class CustomRuleEditController extends ChangeNotifier {
           name: name,
           enabled: _enabled,
           orderNum: initial.orderNum,
-          srsUrl: srsUrlCtrl.text.trim(),
+          srsUrls: parseSrsUrlsText(srsUrlCtrl.text), // ## 12
           updateIntervalHours: _srsTtlHours, // §366
           ports: norm.normalizedPorts(portCtrl.text),
           portRanges: norm.normalizedPortRanges(portRangeCtrl.text),
@@ -797,17 +848,29 @@ class CustomRuleEditController extends ChangeNotifier {
     }
   }
 
+  /// Правило вида json равно по содержимому JSON; редактор считает правкой и
+  /// смену форматирования текста.
   bool isDirty() =>
-      jsonEncode(snapshot().toJson()) != jsonEncode(initial.toJson());
+      snapshot() != initial ||
+      (_kind == CustomRuleKind.json && jsonCtrl.text != initial.json);
+
+  /// §447 — единственная проверка перед сохранением: Save формы, Save в
+  /// AppBar и Save из диалога несохранённых правок. `null` — сохранять можно,
+  /// иначе текст причины (тот же, что под полем JSON). Текст формы не
+  /// трогается — пользователь исправляет набранное.
+  String? get saveBlockReason => jsonError;
 
   /// §225 — валиден ли текущий текст json-правила (для inline-хелпера в
   /// JsonSection и гейта Save). `null` = ок (нет ошибки), иначе краткое
   /// описание. Пустой ввод считается «ещё не заполнено» (ошибка), т.к.
   /// сохранять пустое json-правило смысла нет.
+  ///
+  /// §439 В2 — массив не сохраняется: запись правила держит один объект
+  /// sing-box, несколько правил заводятся отдельно.
   String? get jsonError {
     if (_kind != CustomRuleKind.json) return null;
     final text = jsonCtrl.text.trim();
-    if (text.isEmpty) return 'Enter a JSON object or array of objects.';
+    if (text.isEmpty) return 'Enter a JSON object.';
     final dynamic decoded;
     try {
       decoded = jsonDecode(text);
@@ -816,11 +879,10 @@ class CustomRuleEditController extends ChangeNotifier {
     }
     if (decoded is Map) return null;
     if (decoded is List) {
-      if (decoded.isEmpty) return 'Array is empty.';
-      if (decoded.every((e) => e is Map)) return null;
-      return 'Array must contain only rule objects.';
+      return getLocalText.s(
+          "One rule holds one JSON object. Add each object of the array as a separate rule.");
     }
-    return 'Expected an object or array of objects.';
+    return 'Expected a JSON object.';
   }
 }
 
