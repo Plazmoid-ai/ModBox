@@ -27,6 +27,23 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterShellArgs
 import io.flutter.plugin.common.MethodChannel
 
+private object ModBoxBackUiTimer {
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pending: Runnable? = null
+
+    fun schedule(activity: android.app.Activity, delayMs: Long) {
+        cancel()
+        val task = Runnable { activity.finishAndRemoveTask() }
+        pending = task
+        handler.postDelayed(task, delayMs.coerceAtLeast(1000L))
+    }
+
+    fun cancel() {
+        pending?.let(handler::removeCallbacks)
+        pending = null
+    }
+}
+
 class MainActivity : FlutterActivity() {
 
     companion object {
@@ -244,6 +261,19 @@ class MainActivity : FlutterActivity() {
                     }
                     "moveTaskToBack" -> {
                         result.success(moveTaskToBack(true))
+                    }
+                    "scheduleBackUiClose" -> {
+                        val delayMs = call.argument<Number>("delayMs")?.toLong() ?: 0L
+                        if (delayMs > 0L) {
+                            ModBoxBackUiTimer.schedule(this, delayMs)
+                        } else {
+                            ModBoxBackUiTimer.cancel()
+                        }
+                        result.success(null)
+                    }
+                    "cancelBackUiClose" -> {
+                        ModBoxBackUiTimer.cancel()
+                        result.success(null)
                     }
                     else -> result.notImplemented()
                 }

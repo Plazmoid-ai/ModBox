@@ -275,7 +275,9 @@ class KeepUiOnBackTile extends StatefulWidget {
 
 class _KeepUiOnBackTileState extends State<KeepUiOnBackTile> {
   static const _prefsKey = 'keep_ui_on_back';
+  static const _timerPrefsKey = 'keep_ui_on_back_close_after_minutes';
   bool _enabled = false;
+  int _minutes = 0;
   bool _loaded = false;
 
   @override
@@ -289,6 +291,7 @@ class _KeepUiOnBackTileState extends State<KeepUiOnBackTile> {
     if (!mounted) return;
     setState(() {
       _enabled = prefs.getBool(_prefsKey) ?? false;
+      _minutes = prefs.getInt(_timerPrefsKey) ?? 0;
       _loaded = true;
     });
   }
@@ -299,14 +302,78 @@ class _KeepUiOnBackTileState extends State<KeepUiOnBackTile> {
     await prefs.setBool(_prefsKey, value);
   }
 
+  Future<void> _editTimer() async {
+    final controller = TextEditingController(
+      text: _minutes <= 0
+          ? ''
+          : '${(_minutes ~/ 60).toString().padLeft(2, '0')}:${(_minutes % 60).toString().padLeft(2, '0')}',
+    );
+    final value = await showDialog<int>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Автоматическое закрытие'),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.datetime,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Время',
+            hintText: 'часы:минуты',
+            prefixIcon: Icon(Icons.schedule),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, 0),
+            child: const Text('Без таймера'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final m = RegExp(r'^\s*(\d{1,3})\s*:\s*(\d{2})\s*$')
+                  .firstMatch(controller.text);
+              if (m == null) return;
+              final hours = int.parse(m.group(1)!);
+              final minutes = int.parse(m.group(2)!);
+              if (minutes > 59 || (hours == 0 && minutes == 0)) return;
+              Navigator.pop(context, hours * 60 + minutes);
+            },
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (value == null || !mounted) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_timerPrefsKey, value);
+    setState(() => _minutes = value);
+  }
+
+  String get _timerLabel {
+    if (_minutes <= 0) return 'Таймер не задан';
+    final h = _minutes ~/ 60;
+    final m = _minutes % 60;
+    return 'Закрывать через ${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')} после выхода';
+  }
+
   @override
   Widget build(BuildContext context) {
     return SwitchListTile(
       // l10n-exempt: personal ModBox fork setting is intentionally Russian.
       title: const Text('Сохранять интерфейс при выходе'),
       // l10n-exempt: personal ModBox fork setting is intentionally Russian.
-      subtitle: const Text('Кнопка/жест «Назад» сворачивает приложение вместо закрытия интерфейса.'),
-      secondary: const Icon(Icons.exit_to_app),
+      subtitle: Text(
+        'Кнопка/жест «Назад» сворачивает приложение вместо закрытия интерфейса.\n$_timerLabel',
+      ),
+      secondary: IconButton(
+        tooltip: 'Таймер',
+        onPressed: _loaded && _enabled ? _editTimer : null,
+        icon: const Icon(Icons.schedule),
+      ),
       value: _enabled,
       onChanged: _loaded ? _setEnabled : null,
     );

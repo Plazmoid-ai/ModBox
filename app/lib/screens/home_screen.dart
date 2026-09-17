@@ -121,6 +121,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
   Future<void>? _rebuildInFlight;
 
   static const _keepUiOnBackPrefsKey = 'keep_ui_on_back';
+  static const _backUiTimerPrefsKey = 'keep_ui_on_back_close_after_minutes';
   bool _backHandling = false;
 
 
@@ -542,6 +543,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _lifecycle = state;
     if (state == AppLifecycleState.resumed) {
+      unawaited(_cancelBackUiCloseTimer());
+    }
+    if (state == AppLifecycleState.resumed) {
       _controller.onAppResumed();
       _ruleSetAutoUpdater.onAppResumed(); // §366
       // §291 — досмотреть подписки на возврате из фона: periodic-таймер спит
@@ -747,6 +751,26 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
     if (mounted) setState(() {});
   }
 
+  Future<void> _cancelBackUiCloseTimer() async {
+    try {
+      await const MethodChannel('com.leadaxe.lxbox/utils')
+          .invokeMethod<void>('cancelBackUiClose');
+    } catch (_) {}
+  }
+
+  Future<void> _scheduleBackUiCloseTimer() async {
+    final prefs = await SharedPreferences.getInstance();
+    final minutes = prefs.getInt(_backUiTimerPrefsKey) ?? 0;
+    if (minutes <= 0) return;
+    final delayMs = minutes * 60 * 1000;
+    try {
+      await const MethodChannel('com.leadaxe.lxbox/utils').invokeMethod<void>(
+        'scheduleBackUiClose',
+        {'delayMs': delayMs},
+      );
+    } catch (_) {}
+  }
+
   Future<void> _handleSystemBack() async {
     if (_backHandling) return;
     _backHandling = true;
@@ -767,6 +791,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
       }
 
       try {
+        await _scheduleBackUiCloseTimer();
         await const MethodChannel('com.leadaxe.lxbox/utils')
             .invokeMethod<bool>('moveTaskToBack');
       } on PlatformException {
