@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../main.dart';
 import '../../../services/l10n/locale_controller.dart';
+import 'compact_description_list_tile.dart';
 import 'compact_switch_list_tile.dart';
 import 'update_status_row.dart';
 
@@ -172,7 +173,7 @@ class GeneralTab extends StatelessWidget {
         Text(getLocalText.s("Quick connect"),
             style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        ListTile(
+        CompactDescriptionListTile(
           leading: const Icon(Icons.dashboard_customize_outlined),
           title: Text(getLocalText.s("Quick Settings tile")),
           subtitle: Text(getLocalText.s("Add to status-bar shade for one-tap toggle. Android 13+ shows a system prompt; on older versions edit the shade manually.")),
@@ -181,7 +182,7 @@ class GeneralTab extends StatelessWidget {
             child: Text(getLocalText.s("Add")),
           ),
         ),
-        ListTile(
+        CompactDescriptionListTile(
           leading: const Icon(Icons.touch_app_outlined),
           title: Text(getLocalText.s("Home-screen shortcut")),
           subtitle: Text(getLocalText.s("Long-press the L×Box icon on your home screen → choose \"Toggle VPN\".")),
@@ -340,11 +341,11 @@ class _KeepUiOnBackTileState extends State<KeepUiOnBackTile> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Отмена'),
+              child: const Text('Без таймера'),
             ),
             TextButton(
-              onPressed: () => Navigator.pop(dialogContext, 0),
-              child: const Text('Без таймера'),
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Отмена'),
             ),
             FilledButton(
               onPressed: () {
