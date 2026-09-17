@@ -340,7 +340,7 @@ class _KeepUiOnBackTileState extends State<KeepUiOnBackTile> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
+              onPressed: () => Navigator.pop(dialogContext, 0),
               child: const Text('Без таймера'),
             ),
             TextButton(
