@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 
-/// A compact switch setting that keeps the switch itself as the only
-/// on/off control. Long descriptions can be expanded without changing the
-/// behaviour of the rest of the settings row.
+/// Compact switch setting: the switch itself is the only on/off control.
+/// Long descriptions stay available through a small expand/collapse control.
 class CompactSwitchListTile extends StatefulWidget {
   const CompactSwitchListTile({
     super.key,
@@ -11,6 +10,7 @@ class CompactSwitchListTile extends StatefulWidget {
     required this.value,
     required this.onChanged,
     this.secondary,
+    this.beforeSwitch,
   });
 
   final Widget title;
@@ -18,6 +18,9 @@ class CompactSwitchListTile extends StatefulWidget {
   final bool value;
   final ValueChanged<bool>? onChanged;
   final Widget? secondary;
+
+  /// Optional action placed immediately to the left of the switch.
+  final Widget? beforeSwitch;
 
   @override
   State<CompactSwitchListTile> createState() => _CompactSwitchListTileState();
@@ -59,9 +62,15 @@ class _CompactSwitchListTileState extends State<CompactSwitchListTile> {
             ),
           ],
         ),
-        trailing: Switch(
-          value: widget.value,
-          onChanged: widget.onChanged,
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (widget.beforeSwitch != null) widget.beforeSwitch!,
+            Switch(
+              value: widget.value,
+              onChanged: widget.onChanged,
+            ),
+          ],
         ),
       ),
     );
@@ -82,7 +91,6 @@ class _CompactSwitchListTileState extends State<CompactSwitchListTile> {
       );
     }
 
-    // Keep non-Text subtitles safe rather than attempting to introspect them.
     return subtitle;
   }
 }
