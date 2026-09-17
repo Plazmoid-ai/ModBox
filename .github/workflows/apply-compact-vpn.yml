@@ -1,0 +1,120 @@
+name: Apply compact VPN descriptions
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply compact VPN descriptions
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('app/lib/widgets/compact_description.dart')
+          p.parent.mkdir(parents=True, exist_ok=True)
+          p.write_text('''import 'package:flutter/material.dart';
+
+class CompactDescription extends StatefulWidget {
+  const CompactDescription({super.key, required this.child, this.maxLines = 1});
+
+  final Widget child;
+  final int maxLines;
+
+  @override
+  State<CompactDescription> createState() => _CompactDescriptionState();
+}
+
+class _CompactDescriptionState extends State<CompactDescription> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      alignment: Alignment.topCenter,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: _expanded ? widget.child : _collapsed()),
+          const SizedBox(width: 2),
+          InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.all(4),
+              child: Icon(_expanded ? Icons.expand_less : Icons.expand_more, size: 18),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _collapsed() {
+    final child = widget.child;
+    if (child is Text) {
+      return Text(
+        child.data ?? '',
+        style: child.style,
+        strutStyle: child.strutStyle,
+        textAlign: child.textAlign,
+        textDirection: child.textDirection,
+        locale: child.locale,
+        softWrap: false,
+        overflow: TextOverflow.ellipsis,
+        maxLines: widget.maxLines,
+      );
+    }
+    return child;
+  }
+}
+''', encoding='utf-8')
+
+          s = Path('app/lib/screens/settings_screen.dart')
+          text = s.read_text(encoding='utf-8')
+          if "../widgets/compact_description.dart" not in text:
+              text = text.replace("import '../widgets/template_var_list.dart';", "import '../widgets/template_var_list.dart';\nimport '../widgets/compact_description.dart';")
+
+          pairs = [
+          ('''Text(\n                getLocalText.s("Put unreachable WireGuard tunnels to sleep after they sit idle, freeing memory and saving battery. They wake instantly on use. Only affects tunnels not on the active route."),\n                style: Theme.of(context).textTheme.bodySmall?.copyWith(\n                      color: Theme.of(context).colorScheme.onSurfaceVariant,\n                    ),\n              )''', '''CompactDescription(\n                  child: Text(\n                    getLocalText.s("Put unreachable WireGuard tunnels to sleep after they sit idle, freeing memory and saving battery. They wake instantly on use. Only affects tunnels not on the active route."),\n                    style: Theme.of(context).textTheme.bodySmall?.copyWith(\n                          color: Theme.of(context).colorScheme.onSurfaceVariant,\n                        ),\n                  ),'''),
+          ('''Text(\n                  getLocalText.s("Also put tunnels on the active route (pool members, the selected node) to sleep after a long quiet period — e.g. overnight. The first connection after sleep adds ~1 round trip. Keep this at or above the directions' idle timeout (30 min by default). Requires \\\"Suspend idle tunnels\\\" to be on."),\n                  style: Theme.of(context).textTheme.bodySmall?.copyWith(\n                        color: Theme.of(context).colorScheme.onSurfaceVariant,\n                      ),\n                )''', '''CompactDescription(\n                    child: Text(\n                      getLocalText.s("Also put tunnels on the active route (pool members, the selected node) to sleep after a long quiet period — e.g. overnight. The first connection after sleep adds ~1 round trip. Keep this at or above the directions' idle timeout (30 min by default). Requires \\\"Suspend idle tunnels\\\" to be on."),\n                      style: Theme.of(context).textTheme.bodySmall?.copyWith(\n                            color: Theme.of(context).colorScheme.onSurfaceVariant,\n                          ),\n                    ),\n                  )'''),
+          ('''Text(getLocalText.s("Skip periodic server probes while your own traffic already proves the connection works. Fewer wakeups and less battery; ping numbers refresh less often."))''', '''CompactDescription(\n            child: Text(getLocalText.s("Skip periodic server probes while your own traffic already proves the connection works. Fewer wakeups and less battery; ping numbers refresh less often.")),\n          )'''),
+          ('''Text(\n                getLocalText.s("Caps the VPN core's memory. A cap that is too low keeps the processor busy with garbage collection and heats the phone. Auto sizes the cap to this device's RAM; Off removes the cap but keeps low-memory monitoring. Applies immediately."),\n                style: Theme.of(context).textTheme.bodySmall?.copyWith(\n                      color: Theme.of(context).colorScheme.onSurfaceVariant,\n                    ),\n              )''', '''CompactDescription(\n                  child: Text(\n                    getLocalText.s("Caps the VPN core's memory. A cap that is too low keeps the processor busy with garbage collection and heats the phone. Auto sizes the cap to this device's RAM; Off removes the cap but keeps low-memory monitoring. Applies immediately."),\n                    style: Theme.of(context).textTheme.bodySmall?.copyWith(\n                          color: Theme.of(context).colorScheme.onSurfaceVariant,\n                        ),\n                  ),'''),
+          ('''Text(\n                getLocalText.s("When to pause the tunnel to save battery. Takes effect on next VPN connect."),\n                style: Theme.of(context).textTheme.bodySmall?.copyWith(\n                      color: Theme.of(context).colorScheme.onSurfaceVariant,\n                    ),\n              )''', '''CompactDescription(\n                  child: Text(\n                    getLocalText.s("When to pause the tunnel to save battery. Takes effect on next VPN connect."),\n                    style: Theme.of(context).textTheme.bodySmall?.copyWith(\n                          color: Theme.of(context).colorScheme.onSurfaceVariant,\n                        ),\n                  ),'''),
+          ]
+          for old, new in pairs:
+              if old in text:
+                  text = text.replace(old, new)
+          s.write_text(text, encoding='utf-8')
+
+          t = Path('app/lib/widgets/template_var_list.dart')
+          text = t.read_text(encoding='utf-8')
+          if "import 'compact_description.dart';" not in text:
+              text = text.replace("import '../services/l10n/locale_controller.dart';", "import '../services/l10n/locale_controller.dart';\nimport 'compact_description.dart';")
+          old = '''if (tooltip.isNotEmpty) ...[\n            const SizedBox(height: 2),\n            Text(\n              tooltip,\n              style: theme.textTheme.bodySmall?.copyWith(\n                color: theme.colorScheme.onSurfaceVariant,\n              ),\n            ),\n          ],'''
+          new = '''if (tooltip.isNotEmpty) ...[\n            const SizedBox(height: 2),\n            CompactDescription(\n              child: Text(\n                tooltip,\n                style: theme.textTheme.bodySmall?.copyWith(\n                  color: theme.colorScheme.onSurfaceVariant,\n                ),\n              ),\n            ),\n          ],'''
+          if old in text:
+              text = text.replace(old, new)
+          if "compact_switch_list_tile.dart" not in text:
+              text = text.replace("import 'compact_description.dart';", "import 'compact_description.dart';\nimport '../screens/app_settings_screen/widgets/compact_switch_list_tile.dart';")
+          old = '''return SwitchListTile(\n          title: Text(v.title.isNotEmpty ? v.title : v.name),\n          subtitle: v.tooltip.isNotEmpty\n              ? Text(v.tooltip, style: const TextStyle(fontSize: 12))\n              : null,\n          value: value == 'true',\n          onChanged: (val) => _update(v.name, val.toString()),\n        );'''
+          new = '''return CompactSwitchListTile(\n          title: Text(v.title.isNotEmpty ? v.title : v.name),\n          subtitle: Text(v.tooltip, style: const TextStyle(fontSize: 12)),\n          value: value == 'true',\n          onChanged: (val) => _update(v.name, val.toString()),\n        );'''
+          if old in text:
+              text = text.replace(old, new)
+          t.write_text(text, encoding='utf-8')
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/lib/widgets/compact_description.dart app/lib/screens/settings_screen.dart app/lib/widgets/template_var_list.dart
+          if ! git diff --cached --quiet; then
+            git commit -m "mod: compact VPN settings descriptions"
+            git push
+          fi
