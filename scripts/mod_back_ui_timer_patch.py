@@ -60,6 +60,20 @@ def patch_main_activity(s):
 
 
 def patch_general(s):
+    # The generated timer dialog uses Flutter's text input formatters.
+    # Keep the required services import in the generated Dart source so
+    # flutter build can resolve FilteringTextInputFormatter and
+    # LengthLimitingTextInputFormatter.
+    if "import 'package:flutter/services.dart';" not in s:
+        material_import = "import 'package:flutter/material.dart';\n"
+        if material_import not in s:
+            raise SystemExit('Flutter material import not found in general_tab.dart')
+        s = s.replace(
+            material_import,
+            material_import + "import 'package:flutter/services.dart';\n",
+            1,
+        )
+
     start_marker = 'class KeepUiOnBackTile extends StatefulWidget'
     if start_marker not in s:
         raise SystemExit('KeepUiOnBackTile not found')
