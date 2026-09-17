@@ -336,13 +336,16 @@ class _KeepUiOnBackTileState extends State<KeepUiOnBackTile> {
                 const SizedBox(height: 10),
                 Text(error!, style: TextStyle(color: Theme.of(dialogContext).colorScheme.error)),
               ],
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, 0),
+                  child: const Text('Без таймера'),
+                ),
+              ),
             ],
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, 0),
-              child: const Text('Без таймера'),
-            ),
             TextButton(
               onPressed: () => Navigator.pop(dialogContext),
               child: const Text('Отмена'),
