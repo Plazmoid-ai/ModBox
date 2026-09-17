@@ -64,28 +64,70 @@ class _OverviewTabState extends State<OverviewTab> {
       children: [
         Card(
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _totalChip(context, 'Upload', formatBytes(widget.totalUp, spaced: true), Icons.arrow_upward, cs.primary),
-                _totalChip(context, 'Download', formatBytes(widget.totalDown, spaced: true), Icons.arrow_downward, cs.tertiary),
-                // Тап → вкладка Conns (индекс 1 в DefaultTabController родителя).
-                _totalChip(
-                  context, 'Connections', '${widget.totalConns}', Icons.link, cs.secondary,
-                  onTap: () => DefaultTabController.of(context).animateTo(1),
+                // Трафик: upload/download в одной ячейке, без подписей.
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _trafficLine(
+                        context,
+                        Icons.arrow_upward,
+                        formatBytes(widget.totalUp, spaced: true),
+                        cs.primary,
+                      ),
+                      const SizedBox(height: 4),
+                      _trafficLine(
+                        context,
+                        Icons.arrow_downward,
+                        formatBytes(widget.totalDown, spaced: true),
+                        cs.tertiary,
+                      ),
+                    ],
+                  ),
                 ),
-                // Подпись — LxBox, а не sing-box: это RSS всего процесса
-                // приложения (ядро в том же процессе), не только ядра. Тап →
-                // попап с разбивкой памяти.
-                _totalChip(
-                  context, 'LxBox', formatBytes(widget.memory, spaced: true), Icons.memory, cs.secondary,
-                  onTap: () => showMemoryDetailSheet(
+                _metricDivider(cs),
+                // Общий трафик: «+» визуально означает сумму ↑ + ↓.
+                Expanded(
+                  child: _metric(
                     context,
-                    rss: widget.memory,
-                    goroutines: widget.goroutines,
-                    connectionsIn: widget.connectionsIn,
-                    connectionsOut: widget.connectionsOut,
+                    Icons.add,
+                    formatBytes(widget.totalUp + widget.totalDown, spaced: true),
+                    cs.onSurfaceVariant,
+                    tooltip: getLocalText.s("Total traffic"),
+                  ),
+                ),
+                _metricDivider(cs),
+                // Тап → вкладка Conns (индекс 1 в DefaultTabController родителя).
+                Expanded(
+                  child: _metric(
+                    context,
+                    Icons.link,
+                    '${widget.totalConns}',
+                    cs.secondary,
+                    tooltip: getLocalText.s("Connections"),
+                    onTap: () => DefaultTabController.of(context).animateTo(1),
+                  ),
+                ),
+                _metricDivider(cs),
+                // Подпись LxBox убрана из плашки; по тапу остаётся подробная
+                // информация о памяти процесса.
+                Expanded(
+                  child: _metric(
+                    context,
+                    Icons.memory,
+                    formatBytes(widget.memory, spaced: true),
+                    cs.secondary,
+                    tooltip: getLocalText.s("LxBox"),
+                    onTap: () => showMemoryDetailSheet(
+                      context,
+                      rss: widget.memory,
+                      goroutines: widget.goroutines,
+                      connectionsIn: widget.connectionsIn,
+                      connectionsOut: widget.connectionsOut,
+                    ),
                   ),
                 ),
               ],
@@ -105,46 +147,89 @@ class _OverviewTabState extends State<OverviewTab> {
     );
   }
 
-  Widget _totalChip(
+  Widget _trafficLine(
     BuildContext context,
-    String label,
-    String value,
     IconData icon,
-    Color color, {
-    VoidCallback? onTap,
-  }) {
-    final chip = Column(
+    String value,
+    Color color,
+  ) {
+    return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, color: color, size: 24),
-        const SizedBox(height: 4),
+        Icon(icon, color: color, size: 22),
+        const SizedBox(width: 5),
         Text(
           value,
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color),
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
         ),
+      ],
+    );
+  }
+
+  Widget _metricDivider(ColorScheme cs) {
+    return Container(
+      width: 1,
+      height: 48,
+      color: cs.outlineVariant,
+    );
+  }
+
+  Widget _metric(
+    BuildContext context,
+    IconData icon,
+    String value,
+    Color color, {
+    String? tooltip,
+    VoidCallback? onTap,
+  }) {
+    final content = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(label, style: const TextStyle(fontSize: 11)),
-            // Affordance: интерактивные чипы помечаем стрелкой.
-            if (onTap != null) ...[
-              const SizedBox(width: 2),
-              Icon(Icons.chevron_right, size: 12,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant),
-            ],
+            Icon(icon, color: color, size: 22),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
+            ),
           ],
         ),
       ],
     );
-    if (onTap == null) return chip;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: chip,
-      ),
-    );
+
+    Widget result = Center(child: content);
+    if (tooltip != null) {
+      result = Tooltip(
+        message: tooltip,
+        triggerMode: TooltipTriggerMode.longPress,
+        child: result,
+      );
+    }
+    if (onTap != null) {
+      result = InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+          child: result,
+        ),
+      );
+    }
+    return result;
   }
 
   Widget _buildOutboundCard(OutboundGroup group) {
