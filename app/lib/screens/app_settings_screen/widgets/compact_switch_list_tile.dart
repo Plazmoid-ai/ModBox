@@ -18,8 +18,6 @@ class CompactSwitchListTile extends StatefulWidget {
   final bool value;
   final ValueChanged<bool>? onChanged;
   final Widget? secondary;
-
-  /// Optional action placed immediately to the left of the switch.
   final Widget? beforeSwitch;
 
   @override
