@@ -127,6 +127,9 @@ def patch_general(s):
         if marker not in s:
             raise SystemExit('Flutter material import not found in general_tab.dart')
         s = s.replace(marker, marker + "import 'package:flutter/services.dart';\n", 1)
+    # Keep the timer input bounded to 2 digits even if an older generated
+    # general_tab.dart still contains the previous 3-digit formatter.
+    s = s.replace('LengthLimitingTextInputFormatter(3)', 'LengthLimitingTextInputFormatter(2)')
     return s
 
 
@@ -176,7 +179,7 @@ def patch_home(s):
 '''
         new = '''      try {
         await _scheduleBackUiCloseTimer();
-        await const MethodChannel('com.leadaxe.lxbox/utils')
+        await const MethodChannel('com.leadaxe/lxbox/utils')
             .invokeMethod<bool>('moveTaskToBack');
       } on PlatformException {
 '''
