@@ -12,6 +12,7 @@ import '../services/l10n/template_aware_state.dart';
 import '../services/settings_storage.dart';
 import '../services/template_loader.dart';
 import '../widgets/template_var_list.dart';
+import '../widgets/compact_description.dart';
 import '../widgets/var_values_model.dart';
 import 'vpn_mode_tab.dart';
 import '../services/l10n/locale_controller.dart';
@@ -364,7 +365,7 @@ class _SettingsScreenState extends State<SettingsScreen>
         // (TUN-зависимы → видны только в vpn / vpn_proxy режимах).
         SwitchListTile(
           title: Text(getLocalText.s("Interrupt connections on switch")),
-          subtitle: Text(getLocalText.s("Drop active connections when you switch nodes, so traffic moves to the new node immediately")),
+          subtitle: CompactDescription(getLocalText.s("Drop active connections when you switch nodes, so traffic moves to the new node immediately")),
           secondary: const Icon(Icons.swap_horiz),
           value: _interruptOnSwitch,
           onChanged: _toggleInterruptOnSwitch,
@@ -388,8 +389,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                 style: Theme.of(context).textTheme.bodyLarge,
               ),
               const SizedBox(height: 2),
-              Text(
-                getLocalText.s("Put unreachable WireGuard tunnels to sleep after they sit idle, freeing memory and saving battery. They wake instantly on use. Only affects tunnels not on the active route."),
+              CompactDescription(
+                getLocalText.s("Put unreachable WireGuard tunnels to sleep after they sit idle, freeing memory and saving battery. They wake instantly on use."),
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
@@ -448,7 +449,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                   style: Theme.of(context).textTheme.bodyLarge,
                 ),
                 const SizedBox(height: 2),
-                Text(
+                CompactDescription(
                   getLocalText.s("Also put tunnels on the active route (pool members, the selected node) to sleep after a long quiet period — e.g. overnight. The first connection after sleep adds ~1 round trip. Keep this at or above the directions' idle timeout (30 min by default). Requires \"Suspend idle tunnels\" to be on."),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -508,7 +509,7 @@ class _SettingsScreenState extends State<SettingsScreen>
             unawaited(_applyPassiveCheck(v));
           },
           title: Text(getLocalText.s("Passive health check")),
-          subtitle: Text(getLocalText.s("Skip periodic server probes while your own traffic already proves the connection works. Fewer wakeups and less battery; ping numbers refresh less often.")),
+          subtitle: CompactDescription(getLocalText.s("Skip periodic server probes while your own traffic already proves the connection works. Fewer wakeups and less battery; ping numbers refresh less often.")),
         ),
         // §271 — memory limit ядра. Применяется к работающему ядру сразу.
         Padding(
@@ -521,7 +522,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                 style: Theme.of(context).textTheme.bodyLarge,
               ),
               const SizedBox(height: 2),
-              Text(
+              CompactDescription(
                 getLocalText.s("Caps the VPN core's memory. A cap that is too low keeps the processor busy with garbage collection and heats the phone. Auto sizes the cap to this device's RAM; Off removes the cap but keeps low-memory monitoring. Applies immediately."),
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -570,7 +571,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                 style: Theme.of(context).textTheme.bodyLarge,
               ),
               const SizedBox(height: 2),
-              Text(
+              CompactDescription(
                 getLocalText.s("When to pause the tunnel to save battery. Takes effect on next VPN connect."),
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -590,17 +591,17 @@ class _SettingsScreenState extends State<SettingsScreen>
               RadioListTile<BackgroundMode>(
                 value: BackgroundMode.never,
                 title: Text(getLocalText.s("Never sleep (recommended)")),
-                subtitle: Text(getLocalText.s("Tunnel is always active. Best reliability — pushes and long-lived sockets survive. Higher battery use.")),
+                subtitle: CompactDescription(getLocalText.s("Tunnel is always active. Best reliability — pushes and long-lived sockets survive. Higher battery use.")),
               ),
               RadioListTile<BackgroundMode>(
                 value: BackgroundMode.lazy,
                 title: Text(getLocalText.s("Lazy sleep")),
-                subtitle: Text(getLocalText.s("Pause only in deep Doze (screen off for a long time + no motion). Balanced.")),
+                subtitle: CompactDescription(getLocalText.s("Pause only in deep Doze (screen off for a long time + no motion). Balanced.")),
               ),
               RadioListTile<BackgroundMode>(
                 value: BackgroundMode.always,
                 title: Text(getLocalText.s("Aggressive battery saving")),
-                subtitle: Text(getLocalText.s("Pause tunnel whenever screen turns off. Max battery savings, but pushes, incoming calls and background sync stop until unlock.")),
+                subtitle: CompactDescription(getLocalText.s("Pause tunnel whenever screen turns off. Max battery savings, but pushes, incoming calls and background sync stop until unlock.")),
               ),
             ],
           ),
