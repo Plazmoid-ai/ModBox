@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: android-arm64-test-${{ github.ref }}
@@ -89,24 +89,3 @@ jobs:
           path: app/build/app/outputs/flutter-apk/ModBox-arm64-v8a-test.apk
           if-no-files-found: error
           retention-days: 7
-
-      - name: Commit source patch
-        working-directory: .
-        shell: bash
-        run: |
-          set -euo pipefail
-          if git diff --quiet -- app/android/app/src/main/kotlin/com/leadaxe/lxbox/MainActivity.kt \
-              app/lib/screens/app_settings_screen/widgets/general_tab.dart \
-              app/lib/screens/home_screen.dart; then
-            echo "Back UI timer patch is already committed."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/android/app/src/main/kotlin/com/leadaxe/lxbox/MainActivity.kt \
-                  app/lib/screens/app_settings_screen/widgets/general_tab.dart \
-                  app/lib/screens/home_screen.dart \
-                  scripts/mod_back_ui_timer_patch.py
-          git diff --cached --check
-          git commit -m "mod: add configurable Back UI close timer"
-          git push origin HEAD:custom
