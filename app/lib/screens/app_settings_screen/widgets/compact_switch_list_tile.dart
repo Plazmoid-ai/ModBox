@@ -25,8 +25,7 @@ class CompactSwitchListTile extends StatefulWidget {
   State<CompactSwitchListTile> createState() => _CompactSwitchListTileState();
 }
 
-class _CompactSwitchListTileState extends State<CompactSwitchListTile>
-    with TickerProviderStateMixin {
+class _CompactSwitchListTileState extends State<CompactSwitchListTile> {
   bool _expanded = false;
 
   @override
@@ -37,7 +36,6 @@ class _CompactSwitchListTileState extends State<CompactSwitchListTile>
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
       alignment: Alignment.topCenter,
-      vsync: this,
       child: SwitchListTile(
         title: widget.title,
         subtitle: Row(
