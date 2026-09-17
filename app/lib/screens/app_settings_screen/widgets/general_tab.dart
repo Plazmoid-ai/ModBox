@@ -332,7 +332,7 @@ class _KeepUiOnBackTileState extends State<KeepUiOnBackTile> {
                     keyboardType: TextInputType.number,
                     inputFormatters: [
                       FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(3),
+                      LengthLimitingTextInputFormatter(2),
                     ],
                     decoration: const InputDecoration(
                       labelText: 'Часы',
