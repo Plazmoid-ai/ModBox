@@ -11,6 +11,7 @@ class CompactSwitchListTile extends StatefulWidget {
     required this.onChanged,
     this.secondary,
     this.beforeSwitch,
+    this.leading,
   });
 
   final Widget title;
@@ -19,6 +20,7 @@ class CompactSwitchListTile extends StatefulWidget {
   final ValueChanged<bool>? onChanged;
   final Widget? secondary;
   final Widget? beforeSwitch;
+  final Widget? leading;
 
   @override
   State<CompactSwitchListTile> createState() => _CompactSwitchListTileState();
@@ -36,7 +38,7 @@ class _CompactSwitchListTileState extends State<CompactSwitchListTile> {
       curve: Curves.easeOut,
       alignment: Alignment.topCenter,
       child: ListTile(
-        leading: widget.secondary,
+        leading: widget.secondary ?? widget.leading,
         title: widget.title,
         subtitle: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
