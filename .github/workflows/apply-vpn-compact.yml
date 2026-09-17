@@ -1,0 +1,39 @@
+name: Apply VPN compact descriptions
+
+on:
+  push:
+    branches:
+      - mod/ui-compact-switch-descriptions-v2
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Apply source changes
+        run: python3 scripts/apply_vpn_compact_descriptions.py
+
+      - name: Remove temporary automation
+        run: |
+          rm -f scripts/apply_vpn_compact_descriptions.py .github/workflows/apply-vpn-compact.yml
+
+      - name: Commit changes
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/lib/widgets/compact_description.dart app/lib/screens/settings_screen.dart app/lib/widgets/template_var_list.dart
+          git add -u scripts/apply_vpn_compact_descriptions.py .github/workflows/apply-vpn-compact.yml
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "ui: compact long VPN descriptions"
+          git push origin HEAD:mod/ui-compact-switch-descriptions-v2
