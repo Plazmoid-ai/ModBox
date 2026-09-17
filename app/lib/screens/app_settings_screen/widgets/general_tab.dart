@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../main.dart';
 import '../../../services/l10n/locale_controller.dart';
+import 'compact_switch_list_tile.dart';
 import 'update_status_row.dart';
 
 /// General tab для App Settings.
@@ -153,7 +154,7 @@ class GeneralTab extends StatelessWidget {
         Text(getLocalText.s("Behavior"),
             style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        SwitchListTile(
+        CompactSwitchListTile(
           title: Text(getLocalText.s("Auto-start on boot")),
           subtitle: Text(getLocalText.s("Start VPN when device turns on")),
           secondary: const Icon(Icons.power_settings_new),
@@ -163,7 +164,7 @@ class GeneralTab extends StatelessWidget {
         const KeepUiOnBackTile(),
         // §220 — снятие портретной фиксации (планшетный фидбэк). Применяется
         // сразу, без рестарта; уважает системный auto-rotate.
-        SwitchListTile(
+        CompactSwitchListTile(
           title: Text(getLocalText.s("Allow rotation")),
           subtitle: Text(getLocalText.s("Rotate to landscape when the device turns — handy on tablets. Follows the system auto-rotate setting.")),
           secondary: const Icon(Icons.screen_rotation),
@@ -173,7 +174,7 @@ class GeneralTab extends StatelessWidget {
         // §338 — автоприменение изменений конфига к живому туннелю. Настройка
         // не про подписки: источник изменения любой (узел, detour, DNS,
         // routing, per-app), поэтому живёт в Behavior, а не в Subscriptions.
-        SwitchListTile(
+        CompactSwitchListTile(
           title: Text(getLocalText.s("Auto-restart VPN on settings change")),
           subtitle: Text(getLocalText.s("Apply every config change to the running tunnel by itself, so no banner is left to tap. Each apply drops the tunnel for about 3 seconds and kills open connections.")),
           secondary: const Icon(Icons.restart_alt),
@@ -212,7 +213,7 @@ class GeneralTab extends StatelessWidget {
         Text(getLocalText.s("Updates"),
             style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        SwitchListTile(
+        CompactSwitchListTile(
           title: Text(getLocalText.s("Check for updates on launch")),
           subtitle: Text(getLocalText.s("Pings github.com once a day to check for new releases. \"View\" opens the release page in browser; install is manual.")),
           secondary: const Icon(Icons.system_update_alt),
@@ -224,14 +225,14 @@ class GeneralTab extends StatelessWidget {
         Text(getLocalText.s("Feedback"),
             style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        SwitchListTile(
+        CompactSwitchListTile(
           title: Text(getLocalText.s("Auto-ping after connect")),
           subtitle: Text(getLocalText.s("Ping nodes of active group 5s after VPN starts (once per connect)")),
           secondary: const Icon(Icons.network_ping),
           value: autoPing,
           onChanged: loaded ? onAutoPingChanged : null,
         ),
-        SwitchListTile(
+        CompactSwitchListTile(
           title: Text(getLocalText.s("Haptic feedback")),
           subtitle: Text(getLocalText.s("Vibrate on connect, disconnect and errors. Respects system \"Touch feedback\" setting")),
           secondary: const Icon(Icons.vibration),
@@ -428,14 +429,14 @@ class _KeepUiOnBackTileState extends State<KeepUiOnBackTile> {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Switch(
-            value: _enabled,
-            onChanged: _loaded ? _setEnabled : null,
-          ),
           IconButton(
             tooltip: 'Таймер',
             onPressed: _loaded && _enabled ? _editTimer : null,
             icon: const Icon(Icons.schedule),
+          ),
+          Switch(
+            value: _enabled,
+            onChanged: _loaded ? _setEnabled : null,
           ),
         ],
       ),
