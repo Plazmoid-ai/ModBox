@@ -10,11 +10,7 @@ def edit(path, transform):
 
 
 def patch_main_activity(s):
-    if 'private object ModBoxBackUiTimer' not in s:
-        marker = 'class MainActivity'
-        if marker not in s:
-            raise SystemExit('MainActivity class insertion point not found')
-        helper = '''private object ModBoxBackUiTimer {
+    old_helper = '''private object ModBoxBackUiTimer {
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private var pending: Runnable? = null
 
@@ -30,231 +26,106 @@ def patch_main_activity(s):
         pending = null
     }
 }
-
 '''
-        s = s.replace(marker, helper + marker, 1)
+    new_helper = '''private object ModBoxBackUiTimer {
+    private const val REQUEST_CODE = 240924
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pending: Runnable? = null
 
-    if '"scheduleBackUiClose" ->' not in s:
-        marker = '''                    "moveTaskToBack" -> {
-                        result.success(moveTaskToBack(true))
-                    }
+    private fun pendingIntent(context: android.content.Context): android.app.PendingIntent {
+        val intent = android.content.Intent(context, ModBoxBackUiTimerReceiver::class.java)
+        return android.app.PendingIntent.getBroadcast(
+            context,
+            REQUEST_CODE,
+            intent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    fun schedule(activity: android.app.Activity, delayMs: Long) {
+        cancel(activity)
+        val delay = delayMs.coerceAtLeast(1000L)
+
+        // Handler is the fast path while the process stays alive.
+        // AlarmManager is the durable fallback: Android may suspend or kill
+        // the Flutter process while the task is backgrounded.
+        val task = Runnable {
+            cancel(activity)
+            activity.finishAndRemoveTask()
+        }
+        pending = task
+        handler.postDelayed(task, delay)
+
+        val alarmManager = activity.getSystemService(android.content.Context.ALARM_SERVICE)
+            as android.app.AlarmManager
+        alarmManager.setAndAllowWhileIdle(
+            android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
+            android.os.SystemClock.elapsedRealtime() + delay,
+            pendingIntent(activity),
+        )
+    }
+
+    fun cancel(context: android.content.Context) {
+        pending?.let(handler::removeCallbacks)
+        pending = null
+        val alarmManager = context.getSystemService(android.content.Context.ALARM_SERVICE)
+            as android.app.AlarmManager
+        alarmManager.cancel(pendingIntent(context))
+    }
+}
+
+/** AlarmManager fallback for the Back-UI timer. */
+class ModBoxBackUiTimerReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(context: android.content.Context, intent: android.content.Intent?) {
+        val activityManager = context.getSystemService(android.content.Context.ACTIVITY_SERVICE)
+            as android.app.ActivityManager
+        activityManager.appTasks.forEach { task ->
+            runCatching { task.finishAndRemoveTask() }
+        }
+    }
+}
 '''
+
+    if old_helper in s:
+        s = s.replace(old_helper, new_helper, 1)
+    elif 'private object ModBoxBackUiTimer' not in s:
+        marker = 'class MainActivity'
         if marker not in s:
-            raise SystemExit('moveTaskToBack insertion point not found')
-        insertion = marker + '''                    "scheduleBackUiClose" -> {
-                        val delayMs = call.argument<Number>("delayMs")?.toLong() ?: 0L
-                        if (delayMs > 0L) {
-                            ModBoxBackUiTimer.schedule(this, delayMs)
-                        } else {
-                            ModBoxBackUiTimer.cancel()
-                        }
-                        result.success(null)
-                    }
-                    "cancelBackUiClose" -> {
-                        ModBoxBackUiTimer.cancel()
-                        result.success(null)
-                    }
-'''
-        s = s.replace(marker, insertion, 1)
+            raise SystemExit('MainActivity class insertion point not found')
+        s = s.replace(marker, new_helper + '\n' + marker, 1)
+    elif 'ModBoxBackUiTimerReceiver' not in s:
+        raise SystemExit('Existing Back timer helper has an unexpected format; refusing unsafe rewrite')
+
+    s = s.replace('ModBoxBackUiTimer.schedule(this, delayMs)', 'ModBoxBackUiTimer.schedule(this, delayMs)')
+    s = s.replace('ModBoxBackUiTimer.cancel()\n                        result.success(null)', 'ModBoxBackUiTimer.cancel(this)\n                        result.success(null)')
     return s
 
 
-def patch_general(s):
-    # The generated timer dialog uses Flutter's text input formatters.
-    # Keep the required services import in the generated Dart source so
-    # flutter build can resolve FilteringTextInputFormatter and
-    # LengthLimitingTextInputFormatter.
-    if "import 'package:flutter/services.dart';" not in s:
-        material_import = "import 'package:flutter/material.dart';\n"
-        if material_import not in s:
-            raise SystemExit('Flutter material import not found in general_tab.dart')
-        s = s.replace(
-            material_import,
-            material_import + "import 'package:flutter/services.dart';\n",
-            1,
-        )
-
-    start_marker = 'class KeepUiOnBackTile extends StatefulWidget'
-    if start_marker not in s:
-        raise SystemExit('KeepUiOnBackTile not found')
-    start = s.index(start_marker)
-    s = s[:start] + r'''class KeepUiOnBackTile extends StatefulWidget {
-  const KeepUiOnBackTile({super.key});
-
-  @override
-  State<KeepUiOnBackTile> createState() => _KeepUiOnBackTileState();
-}
-
-class _KeepUiOnBackTileState extends State<KeepUiOnBackTile> {
-  static const _prefsKey = 'keep_ui_on_back';
-  static const _timerPrefsKey = 'keep_ui_on_back_close_after_minutes';
-  bool _enabled = false;
-  int _minutes = 0;
-  bool _loaded = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
-    setState(() {
-      _enabled = prefs.getBool(_prefsKey) ?? false;
-      _minutes = prefs.getInt(_timerPrefsKey) ?? 0;
-      _loaded = true;
-    });
-  }
-
-  Future<void> _setEnabled(bool value) async {
-    setState(() => _enabled = value);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_prefsKey, value);
-  }
-
-  Future<void> _editTimer() async {
-    final hoursController = TextEditingController(
-      text: _minutes <= 0 ? '' : (_minutes ~/ 60).toString(),
-    );
-    final minutesController = TextEditingController(
-      text: _minutes <= 0 ? '' : (_minutes % 60).toString().padLeft(2, '0'),
-    );
-
-    final value = await showDialog<int>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Автоматическое закрытие'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text('Закрыть интерфейс через:'),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: hoursController,
-                    autofocus: true,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(3),
-                    ],
-                    decoration: const InputDecoration(
-                      labelText: 'Часы',
-                      hintText: '0',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 10),
-                  child: Text(':', style: TextStyle(fontSize: 22)),
-                ),
-                Expanded(
-                  child: TextField(
-                    controller: minutesController,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(2),
-                    ],
-                    decoration: const InputDecoration(
-                      labelText: 'Минуты',
-                      hintText: '00',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Минуты: от 00 до 59',
-                style: TextStyle(fontSize: 12),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Отмена'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, 0),
-            child: const Text('Без таймера'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final hours = int.tryParse(hoursController.text.trim()) ?? 0;
-              final minutes = int.tryParse(minutesController.text.trim()) ?? 0;
-              if (minutes > 59 || (hours == 0 && minutes == 0)) {
-                ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  const SnackBar(
-                    content: Text('Введите время больше 00:00, минуты 00–59.'),
-                  ),
-                );
-                return;
-              }
-              Navigator.pop(dialogContext, hours * 60 + minutes);
-            },
-            child: const Text('Сохранить'),
-          ),
-        ],
-      ),
-    );
-
-    hoursController.dispose();
-    minutesController.dispose();
-    if (value == null || !mounted) return;
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_timerPrefsKey, value);
-    setState(() => _minutes = value);
-  }
-
-  String get _timerLabel {
-    if (_minutes <= 0) return 'Таймер не задан';
-    final h = _minutes ~/ 60;
-    final m = _minutes % 60;
-    return 'Закрывать через ${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')} после выхода';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: const Icon(Icons.exit_to_app),
-      title: const Text('Сохранять интерфейс при выходе'),
-      subtitle: Text(
-        'Кнопка/жест «Назад» сворачивает приложение вместо закрытия интерфейса.\n$_timerLabel',
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            tooltip: 'Таймер',
-            onPressed: _loaded && _enabled ? _editTimer : null,
-            icon: const Icon(Icons.schedule),
-          ),
-          Switch(
-            value: _enabled,
-            onChanged: _loaded ? _setEnabled : null,
-          ),
-        ],
-      ),
-      isThreeLine: _minutes > 0,
-    );
-  }
-}
+def patch_manifest(s):
+    if '.ModBoxBackUiTimerReceiver' in s:
+        return s
+    marker = '''        <receiver
+            android:name=".vpn.VpnWatchdogReceiver"
+            android:exported="false" />
 '''
+    if marker not in s:
+        raise SystemExit('Manifest VpnWatchdogReceiver insertion point not found')
+    receiver = '''        <!-- ModBox Back UI timer: AlarmManager fallback for background/process
+             suspension. The receiver finishes this app's task directly. -->
+        <receiver
+            android:name=".ModBoxBackUiTimerReceiver"
+            android:exported="false" />
+
+'''
+    return s.replace(marker, receiver + marker, 1)
+
+
+def patch_general(s):
+    if "import 'package:flutter/services.dart';" not in s:
+        marker = "import 'package:flutter/material.dart';\n"
+        if marker not in s:
+            raise SystemExit('Flutter material import not found in general_tab.dart')
+        s = s.replace(marker, marker + "import 'package:flutter/services.dart';\n", 1)
     return s
 
 
@@ -269,8 +140,7 @@ def patch_home(s):
             1,
         )
 
-    helpers_added = 'Future<void> _cancelBackUiCloseTimer() async' in s
-    if not helpers_added:
+    if 'Future<void> _cancelBackUiCloseTimer() async' not in s:
         marker = '''  Future<void> _handleSystemBack() async {
 '''
         if marker not in s:
@@ -329,5 +199,6 @@ def patch_home(s):
 
 
 edit('app/android/app/src/main/kotlin/com/leadaxe/lxbox/MainActivity.kt', patch_main_activity)
+edit('app/android/app/src/main/AndroidManifest.xml', patch_manifest)
 edit('app/lib/screens/app_settings_screen/widgets/general_tab.dart', patch_general)
 edit('app/lib/screens/home_screen.dart', patch_home)
