@@ -304,100 +304,100 @@ class _KeepUiOnBackTileState extends State<KeepUiOnBackTile> {
   }
 
   Future<void> _editTimer() async {
-    final hoursController = TextEditingController(
-      text: _minutes <= 0 ? '' : (_minutes ~/ 60).toString(),
-    );
-    final minutesController = TextEditingController(
-      text: _minutes <= 0 ? '' : (_minutes % 60).toString().padLeft(2, '0'),
-    );
+    final initialHours = _minutes <= 0 ? '' : (_minutes ~/ 60).toString();
+    final initialMinutes = _minutes <= 0 ? '' : (_minutes % 60).toString().padLeft(2, '0');
+    final hoursController = TextEditingController(text: initialHours);
+    final minutesController = TextEditingController(text: initialMinutes);
+    String? error;
 
     final value = await showDialog<int>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Автоматическое закрытие'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text('Закрыть интерфейс через:'),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: hoursController,
-                    autofocus: true,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(2),
-                    ],
-                    decoration: const InputDecoration(
-                      labelText: 'Часы',
-                      hintText: '0',
-                      border: OutlineInputBorder(),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Автоматическое закрытие интерфейса'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Через сколько времени после выхода закрыть интерфейс:'),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: hoursController,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.next,
+                      maxLength: 2,
+                      decoration: const InputDecoration(
+                        labelText: 'Часы',
+                        hintText: '0',
+                        counterText: '',
+                      ),
                     ),
                   ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 10),
-                  child: Text(':', style: TextStyle(fontSize: 22)),
-                ),
-                Expanded(
-                  child: TextField(
-                    controller: minutesController,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(2),
-                    ],
-                    decoration: const InputDecoration(
-                      labelText: 'Минуты',
-                      hintText: '00',
-                      border: OutlineInputBorder(),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 10),
+                    child: Text(':', style: TextStyle(fontSize: 24)),
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: minutesController,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.done,
+                      maxLength: 2,
+                      decoration: const InputDecoration(
+                        labelText: 'Минуты',
+                        hintText: '00',
+                        counterText: '',
+                      ),
                     ),
                   ),
+                ],
+              ),
+              if (error != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  error!,
+                  style: TextStyle(color: Theme.of(dialogContext).colorScheme.error),
                 ),
               ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Отмена'),
             ),
-            const SizedBox(height: 8),
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Минуты: от 00 до 59',
-                style: TextStyle(fontSize: 12),
-              ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, 0),
+              child: const Text('Без таймера'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final hoursText = hoursController.text.trim();
+                final minutesText = minutesController.text.trim();
+                final hours = int.tryParse(hoursText);
+                final minutes = int.tryParse(minutesText);
+
+                if (hours == null || hours < 0 || hours > 99) {
+                  setDialogState(() => error = 'Введите часы от 0 до 99.');
+                  return;
+                }
+                if (minutes == null || minutes < 0 || minutes > 59) {
+                  setDialogState(() => error = 'Минуты должны быть от 0 до 59.');
+                  return;
+                }
+                if (hours == 0 && minutes == 0) {
+                  setDialogState(() => error = 'Укажите время больше 00:00.');
+                  return;
+                }
+                Navigator.pop(dialogContext, hours * 60 + minutes);
+              },
+              child: const Text('Сохранить'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Отмена'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, 0),
-            child: const Text('Без таймера'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final hours = int.tryParse(hoursController.text.trim()) ?? 0;
-              final minutes = int.tryParse(minutesController.text.trim()) ?? 0;
-              if (minutes > 59 || (hours == 0 && minutes == 0)) {
-                ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  const SnackBar(
-                    content: Text('Введите время больше 00:00, минуты 00–59.'),
-                  ),
-                );
-                return;
-              }
-              Navigator.pop(dialogContext, hours * 60 + minutes);
-            },
-            child: const Text('Сохранить'),
-          ),
-        ],
       ),
     );
 
@@ -428,14 +428,14 @@ class _KeepUiOnBackTileState extends State<KeepUiOnBackTile> {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          Switch(
+            value: _enabled,
+            onChanged: _loaded ? _setEnabled : null,
+          ),
           IconButton(
             tooltip: 'Таймер',
             onPressed: _loaded && _enabled ? _editTimer : null,
             icon: const Icon(Icons.schedule),
-          ),
-          Switch(
-            value: _enabled,
-            onChanged: _loaded ? _setEnabled : null,
           ),
         ],
       ),
