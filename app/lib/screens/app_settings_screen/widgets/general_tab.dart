@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../main.dart';
@@ -303,51 +304,107 @@ class _KeepUiOnBackTileState extends State<KeepUiOnBackTile> {
   }
 
   Future<void> _editTimer() async {
-    final controller = TextEditingController(
-      text: _minutes <= 0
-          ? ''
-          : '${(_minutes ~/ 60).toString().padLeft(2, '0')}:${(_minutes % 60).toString().padLeft(2, '0')}',
+    final hoursController = TextEditingController(
+      text: _minutes <= 0 ? '' : (_minutes ~/ 60).toString(),
     );
+    final minutesController = TextEditingController(
+      text: _minutes <= 0 ? '' : (_minutes % 60).toString().padLeft(2, '0'),
+    );
+
     final value = await showDialog<int>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Автоматическое закрытие'),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.datetime,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Время',
-            hintText: 'часы:минуты',
-            prefixIcon: Icon(Icons.schedule),
-          ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text('Закрыть интерфейс через:'),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: hoursController,
+                    autofocus: true,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(3),
+                    ],
+                    decoration: const InputDecoration(
+                      labelText: 'Часы',
+                      hintText: '0',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 10),
+                  child: Text(':', style: TextStyle(fontSize: 22)),
+                ),
+                Expanded(
+                  child: TextField(
+                    controller: minutesController,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(2),
+                    ],
+                    decoration: const InputDecoration(
+                      labelText: 'Минуты',
+                      hintText: '00',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Минуты: от 00 до 59',
+                style: TextStyle(fontSize: 12),
+              ),
+            ),
+          ],
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Отмена'),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(context, 0),
+            onPressed: () => Navigator.pop(dialogContext, 0),
             child: const Text('Без таймера'),
           ),
           FilledButton(
             onPressed: () {
-              final m = RegExp(r'^\s*(\d{1,3})\s*:\s*(\d{2})\s*$')
-                  .firstMatch(controller.text);
-              if (m == null) return;
-              final hours = int.parse(m.group(1)!);
-              final minutes = int.parse(m.group(2)!);
-              if (minutes > 59 || (hours == 0 && minutes == 0)) return;
-              Navigator.pop(context, hours * 60 + minutes);
+              final hours = int.tryParse(hoursController.text.trim()) ?? 0;
+              final minutes = int.tryParse(minutesController.text.trim()) ?? 0;
+              if (minutes > 59 || (hours == 0 && minutes == 0)) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  const SnackBar(
+                    content: Text('Введите время больше 00:00, минуты 00–59.'),
+                  ),
+                );
+                return;
+              }
+              Navigator.pop(dialogContext, hours * 60 + minutes);
             },
             child: const Text('Сохранить'),
           ),
         ],
       ),
     );
-    controller.dispose();
+
+    hoursController.dispose();
+    minutesController.dispose();
     if (value == null || !mounted) return;
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_timerPrefsKey, value);
     setState(() => _minutes = value);
@@ -362,20 +419,27 @@ class _KeepUiOnBackTileState extends State<KeepUiOnBackTile> {
 
   @override
   Widget build(BuildContext context) {
-    return SwitchListTile(
-      // l10n-exempt: personal ModBox fork setting is intentionally Russian.
+    return ListTile(
+      leading: const Icon(Icons.exit_to_app),
       title: const Text('Сохранять интерфейс при выходе'),
-      // l10n-exempt: personal ModBox fork setting is intentionally Russian.
       subtitle: Text(
         'Кнопка/жест «Назад» сворачивает приложение вместо закрытия интерфейса.\n$_timerLabel',
       ),
-      secondary: IconButton(
-        tooltip: 'Таймер',
-        onPressed: _loaded && _enabled ? _editTimer : null,
-        icon: const Icon(Icons.schedule),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: 'Таймер',
+            onPressed: _loaded && _enabled ? _editTimer : null,
+            icon: const Icon(Icons.schedule),
+          ),
+          Switch(
+            value: _enabled,
+            onChanged: _loaded ? _setEnabled : null,
+          ),
+        ],
       ),
-      value: _enabled,
-      onChanged: _loaded ? _setEnabled : null,
+      isThreeLine: _minutes > 0,
     );
   }
 }
