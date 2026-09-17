@@ -96,8 +96,9 @@ class ModBoxBackUiTimerReceiver : android.content.BroadcastReceiver() {
     elif 'ModBoxBackUiTimerReceiver' not in s:
         raise SystemExit('Existing Back timer helper has an unexpected format; refusing unsafe rewrite')
 
-    s = s.replace('ModBoxBackUiTimer.schedule(this, delayMs)', 'ModBoxBackUiTimer.schedule(this, delayMs)')
-    s = s.replace('ModBoxBackUiTimer.cancel()\n                        result.success(null)', 'ModBoxBackUiTimer.cancel(this)\n                        result.success(null)')
+    # The public cancel() API now requires a Context. Do this after helper
+    # insertion so the helper's own calls (cancel(activity)) are untouched.
+    s = s.replace('ModBoxBackUiTimer.cancel()\n', 'ModBoxBackUiTimer.cancel(this)\n')
     return s
 
 
