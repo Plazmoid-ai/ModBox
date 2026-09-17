@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../services/settings_storage.dart';
 import '../../../services/l10n/locale_controller.dart';
+import 'compact_description_list_tile.dart';
 
 /// Diagnostics tab для App Settings.
 ///
@@ -86,7 +87,7 @@ class DiagnosticsTab extends StatelessWidget {
         Text(getLocalText.s("System setup"),
             style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        ListTile(
+        CompactDescriptionListTile(
           leading: Icon(
             batteryWhitelisted ? Icons.battery_full : Icons.battery_alert,
             color: batteryWhitelisted
@@ -100,7 +101,7 @@ class DiagnosticsTab extends StatelessWidget {
           trailing: const Icon(Icons.chevron_right, size: 18),
           onTap: onBatteryTap,
         ),
-        ListTile(
+        CompactDescriptionListTile(
           leading: Icon(
             notificationsEnabled
                 ? Icons.notifications_active_outlined
@@ -120,7 +121,7 @@ class DiagnosticsTab extends StatelessWidget {
         // NEARBY_WIFI_DEVICES (API 33+). Без них sing-box `wifi_ssid` /
         // `wifi_bssid` правила не сматчатся (`WifiInfo.ssid` возвращает
         // `<unknown ssid>`). См. spec/050 findings + spec/051.
-        ListTile(
+        CompactDescriptionListTile(
           leading: Icon(
             backgroundLocationGranted
                 ? Icons.location_on_outlined
@@ -136,7 +137,7 @@ class DiagnosticsTab extends StatelessWidget {
           trailing: const Icon(Icons.chevron_right, size: 18),
           onTap: onBackgroundLocationTap,
         ),
-        ListTile(
+        CompactDescriptionListTile(
           leading: Icon(
             nearbyWifiGranted
                 ? Icons.wifi_outlined
@@ -152,7 +153,7 @@ class DiagnosticsTab extends StatelessWidget {
           trailing: const Icon(Icons.chevron_right, size: 18),
           onTap: onNearbyWifiTap,
         ),
-        ListTile(
+        CompactDescriptionListTile(
           leading: const Icon(Icons.settings_applications_outlined),
           title: Text(getLocalText.s("App info (OEM power settings)")),
           subtitle: Text(getLocalText.s("OEM-specific toggles to keep VPN alive in background.")),
