@@ -45,9 +45,9 @@ jobs:
           flutter-version: ${{ steps.flutter_pin.outputs.version }}
           cache: true
 
-      - name: Apply ModBox Back UI patch
+      - name: Apply ModBox Back UI timer patch
         working-directory: .
-        run: python3 scripts/mod_back_ui_patch.py
+        run: python3 scripts/mod_back_ui_timer_patch.py
 
       - name: Inject test version
         shell: bash
@@ -98,14 +98,15 @@ jobs:
           if git diff --quiet -- app/android/app/src/main/kotlin/com/leadaxe/lxbox/MainActivity.kt \
               app/lib/screens/app_settings_screen/widgets/general_tab.dart \
               app/lib/screens/home_screen.dart; then
-            echo "Back UI patch is already committed."
+            echo "Back UI timer patch is already committed."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add app/android/app/src/main/kotlin/com/leadaxe/lxbox/MainActivity.kt \
                   app/lib/screens/app_settings_screen/widgets/general_tab.dart \
-                  app/lib/screens/home_screen.dart
+                  app/lib/screens/home_screen.dart \
+                  scripts/mod_back_ui_timer_patch.py
           git diff --cached --check
-          git commit -m "mod: configurable Back UI behavior"
+          git commit -m "mod: add configurable Back UI close timer"
           git push origin HEAD:custom
