@@ -179,7 +179,7 @@ def patch_home(s):
 '''
         new = '''      try {
         await _scheduleBackUiCloseTimer();
-        await const MethodChannel('com.leadaxe/lxbox/utils')
+        await const MethodChannel('com.leadaxe.lxbox/utils')
             .invokeMethod<bool>('moveTaskToBack');
       } on PlatformException {
 '''
