@@ -4961,4 +4961,14 @@
   "Region": {
     "value": "Регион"
   }
+,
+  "Connections": {
+    "value": "Соединения"
+  },
+  "LxBox": {
+    "value": "LxBox"
+  },
+  "Total traffic": {
+    "value": "Общий трафик"
+  }
 }
