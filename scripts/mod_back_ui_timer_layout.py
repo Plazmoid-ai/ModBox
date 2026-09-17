@@ -45,51 +45,107 @@ class _KeepUiOnBackTileState extends State<KeepUiOnBackTile> {
   }
 
   Future<void> _editTimer() async {
-    final controller = TextEditingController(
-      text: _minutes <= 0
-          ? ''
-          : '${(_minutes ~/ 60).toString().padLeft(2, '0')}:${(_minutes % 60).toString().padLeft(2, '0')}',
-    );
+    final initialHours = _minutes <= 0 ? '' : (_minutes ~/ 60).toString();
+    final initialMinutes = _minutes <= 0 ? '' : (_minutes % 60).toString().padLeft(2, '0');
+    final hoursController = TextEditingController(text: initialHours);
+    final minutesController = TextEditingController(text: initialMinutes);
+    String? error;
+
     final value = await showDialog<int>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Автоматическое закрытие'),
-        content: TextField(
-          controller: controller,
-          keyboardType: TextInputType.datetime,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Время',
-            hintText: 'часы:минуты',
-            prefixIcon: Icon(Icons.schedule),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Автоматическое закрытие интерфейса'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Через сколько времени после выхода закрыть интерфейс:'),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: hoursController,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.next,
+                      maxLength: 3,
+                      decoration: const InputDecoration(
+                        labelText: 'Часы',
+                        hintText: '0',
+                        counterText: '',
+                      ),
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 10),
+                    child: Text(':', style: TextStyle(fontSize: 24)),
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: minutesController,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.done,
+                      maxLength: 2,
+                      decoration: const InputDecoration(
+                        labelText: 'Минуты',
+                        hintText: '00',
+                        counterText: '',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (error != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  error!,
+                  style: TextStyle(color: Theme.of(dialogContext).colorScheme.error),
+                ),
+              ],
+            ],
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Отмена'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, 0),
+              child: const Text('Без таймера'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final hoursText = hoursController.text.trim();
+                final minutesText = minutesController.text.trim();
+                final hours = int.tryParse(hoursText);
+                final minutes = int.tryParse(minutesText);
+
+                if (hours == null || hours < 0 || hours > 999) {
+                  setDialogState(() => error = 'Введите часы от 0 до 999.');
+                  return;
+                }
+                if (minutes == null || minutes < 0 || minutes > 59) {
+                  setDialogState(() => error = 'Минуты должны быть от 0 до 59.');
+                  return;
+                }
+                if (hours == 0 && minutes == 0) {
+                  setDialogState(() => error = 'Укажите время больше 00:00.');
+                  return;
+                }
+                Navigator.pop(dialogContext, hours * 60 + minutes);
+              },
+              child: const Text('Сохранить'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Отмена'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, 0),
-            child: const Text('Без таймера'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final m = RegExp(r'^\s*(\d{1,3})\s*:\s*(\d{2})\s*$')
-                  .firstMatch(controller.text);
-              if (m == null) return;
-              final hours = int.parse(m.group(1)!);
-              final minutes = int.parse(m.group(2)!);
-              if (minutes > 59 || (hours == 0 && minutes == 0)) return;
-              Navigator.pop(context, hours * 60 + minutes);
-            },
-            child: const Text('Сохранить'),
-          ),
-        ],
       ),
     );
-    controller.dispose();
+
+    hoursController.dispose();
+    minutesController.dispose();
     if (value == null || !mounted) return;
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_timerPrefsKey, value);
     setState(() => _minutes = value);
@@ -113,14 +169,14 @@ class _KeepUiOnBackTileState extends State<KeepUiOnBackTile> {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          Switch(
+            value: _enabled,
+            onChanged: _loaded ? _setEnabled : null,
+          ),
           IconButton(
             tooltip: 'Таймер',
             onPressed: _loaded && _enabled ? _editTimer : null,
             icon: const Icon(Icons.schedule),
-          ),
-          Switch(
-            value: _enabled,
-            onChanged: _loaded ? _setEnabled : null,
           ),
         ],
       ),
