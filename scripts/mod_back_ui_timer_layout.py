@@ -69,7 +69,7 @@ class _KeepUiOnBackTileState extends State<KeepUiOnBackTile> {
                       controller: hoursController,
                       keyboardType: TextInputType.number,
                       textInputAction: TextInputAction.next,
-                      maxLength: 3,
+                      maxLength: 2,
                       decoration: const InputDecoration(
                         labelText: 'Часы',
                         hintText: '0',
@@ -121,8 +121,8 @@ class _KeepUiOnBackTileState extends State<KeepUiOnBackTile> {
                 final hours = int.tryParse(hoursText);
                 final minutes = int.tryParse(minutesText);
 
-                if (hours == null || hours < 0 || hours > 999) {
-                  setDialogState(() => error = 'Введите часы от 0 до 999.');
+                if (hours == null || hours < 0 || hours > 99) {
+                  setDialogState(() => error = 'Введите часы от 0 до 99.');
                   return;
                 }
                 if (minutes == null || minutes < 0 || minutes > 59) {
