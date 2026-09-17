@@ -37,6 +37,7 @@ class _CompactSwitchListTileState extends State<CompactSwitchListTile>
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
       alignment: Alignment.topCenter,
+      vsync: this,
       child: SwitchListTile(
         title: widget.title,
         subtitle: Row(
