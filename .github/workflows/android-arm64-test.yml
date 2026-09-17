@@ -50,6 +50,10 @@ jobs:
         working-directory: .
         run: python3 scripts/mod_back_ui_timer_patch.py
 
+      - name: Align Back timer button with switch
+        working-directory: .
+        run: python3 scripts/mod_back_ui_timer_layout.py
+
       - name: Inject test version
         shell: bash
         run: |
@@ -107,7 +111,8 @@ jobs:
           git add app/android/app/src/main/kotlin/com/leadaxe/lxbox/MainActivity.kt \
                   app/lib/screens/app_settings_screen/widgets/general_tab.dart \
                   app/lib/screens/home_screen.dart \
-                  scripts/mod_back_ui_timer_patch.py
+                  scripts/mod_back_ui_timer_patch.py \
+                  scripts/mod_back_ui_timer_layout.py
           git diff --cached --check
           git commit -m "mod: add configurable Back UI close timer"
           git push origin HEAD:custom
