@@ -15,8 +15,6 @@ class TrafficJournal extends ChangeNotifier {
 
   static const _storageKey = 'traffic_journal_v2';
 
-  StreamSubscription<CcStatus>? _statusSub;
-  StreamSubscription<List<CcConnection>>? _connectionsSub;
   Timer? _saveTimer;
   Timer? _notifyTimer;
 
@@ -43,8 +41,8 @@ class TrafficJournal extends ChangeNotifier {
     _started = true;
     _startedAt = DateTime.now();
     await _load();
-    _statusSub = CcChannel.instance.status.listen(_onStatus);
-    _connectionsSub = CcChannel.instance.connections.listen(_onConnections);
+    CcChannel.instance.status.listen(_onStatus);
+    CcChannel.instance.connections.listen(_onConnections);
   }
 
   int get currentUpload => _currentUpload;
