@@ -213,25 +213,6 @@ class _StatsScreenState extends State<StatsScreen> {
           appBar: AppBar(
             title: Text(getLocalText.s("Statistics")),
             actions: [
-              IconButton(
-                tooltip: 'Tap test',
-                onPressed: () {
-                  showDialog<void>(
-                    context: context,
-                    builder: (dialogContext) => AlertDialog(
-                      title: const Text('Tap test'),
-                      content: const Text('AppBar tap works.'),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.of(dialogContext).pop(),
-                          child: const Text('OK'),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.touch_app),
-              ),
               // §069 — warning если bypass реально applied в текущей VPN-сессии
               // (runtime, не persisted). Видимо на всех 4 tabs.
               if (_currentSessionAllowBypass)
