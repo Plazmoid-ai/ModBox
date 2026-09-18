@@ -108,24 +108,13 @@ class _OverviewTabState extends State<OverviewTab> {
                   ),
                 ),
                 _metricDivider(cs),
-                // 3. Connections — значение и link сверху, signal снизу.
+                // 3. Connections — число сверху, только link снизу.
                 Expanded(
                   child: _stackedMetric(
-                    valueRow: [
-                      Text(
-                        '${widget.totalConns}',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: cs.secondary,
-                        ),
-                      ),
-                      const SizedBox(width: 5),
-                      Icon(Icons.link, color: cs.secondary, size: 22),
-                    ],
+                    value: '${widget.totalConns}',
                     bottom: Icon(
-                      Icons.signal_cellular_alt,
-                      color: cs.onSurfaceVariant,
+                      Icons.link,
+                      color: cs.secondary,
                       size: 22,
                     ),
                     onTap: () =>
@@ -133,25 +122,13 @@ class _OverviewTabState extends State<OverviewTab> {
                   ),
                 ),
                 _metricDivider(cs),
-                // 4. LxBox — значение и memory сверху, database снизу.
+                // 4. LxBox — значение сверху, только memory/chip снизу.
                 Expanded(
                   child: _stackedMetric(
-                    valueRow: [
-                      Text(
-                        formatBytes(widget.memory, spaced: true),
-                        maxLines: 1,
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: cs.secondary,
-                        ),
-                      ),
-                      const SizedBox(width: 5),
-                      Icon(Icons.memory, color: cs.secondary, size: 22),
-                    ],
+                    value: formatBytes(widget.memory, spaced: true),
                     bottom: Icon(
-                      Icons.storage,
-                      color: cs.onSurfaceVariant,
+                      Icons.memory,
+                      color: cs.secondary,
                       size: 22,
                     ),
                     onTap: () => showMemoryDetailSheet(
