@@ -218,17 +218,22 @@ mixin _PingMixin on ChangeNotifier {
   static const _autoPingDelay = Duration(seconds: 5);
   Future<void> _scheduleAutoPing() async {
     _autoPingTimer?.cancel();
+    final lifecycleGeneration = _autoPingLifecycleGeneration;
     final enabled =
         await SettingsStorage.getVar('auto_ping_on_start', 'true');
     if (enabled != 'true') return;
+    // Lifecycle may have changed while settings were loading (e.g. Back/background).
+    if (lifecycleGeneration != _autoPingLifecycleGeneration) return;
     // §141 P1.2c — read-after-await: туннель мог упасть, пока ждали getVar
     // (disconnect-ветка `_handleStatusEvent` уже отменила старый таймер и
     // обнулила _autoPingTimer). Без этого гейта мы пере-создаём таймер на
     // мёртвую сессию — callback его потом отбросит по tunnelUp-проверке, но
     // лишний висящий Timer чище не создавать вовсе.
     if (!_state.tunnelUp) return;
+    if (lifecycleGeneration != _autoPingLifecycleGeneration) return;
     _autoPingTimer = Timer(_autoPingDelay, () {
-      if (!_state.tunnelUp || _state.nodes.isEmpty) return;
+      if (lifecycleGeneration != _autoPingLifecycleGeneration ||
+          !_state.tunnelUp || _state.nodes.isEmpty) return;
       unawaited(runMassUrltest());
     });
   }
