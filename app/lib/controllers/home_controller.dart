@@ -23,6 +23,7 @@ import '../services/template_loader.dart';
 import '../services/haptic_service.dart';
 import '../services/rule_set_auto_updater.dart';
 import '../services/subscription/auto_updater.dart';
+import '../services/traffic_journal.dart';
 
 part 'home_controller/config_io.dart';
 part 'home_controller/heartbeat.dart';
@@ -34,7 +35,9 @@ class HomeController extends ChangeNotifier
     AutoUpdater? autoUpdater,
     RuleSetAutoUpdater? ruleSetAutoUpdater,
   })  : _autoUpdater = autoUpdater,
-        _ruleSetAutoUpdater = ruleSetAutoUpdater;
+        _ruleSetAutoUpdater = ruleSetAutoUpdater {
+    unawaited(TrafficJournal.I.start());
+  }
 
   @override
   final BoxVpnClient _vpn = BoxVpnClient();
