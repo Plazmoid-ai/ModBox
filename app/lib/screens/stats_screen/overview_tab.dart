@@ -67,57 +67,93 @@ class _OverviewTabState extends State<OverviewTab> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
             child: Row(
               children: [
-                // Трафик: upload/download в одной ячейке, без подписей.
+                // 1. Upload / Download — две строки, стрелки слева.
                 Expanded(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _trafficLine(
-                        context,
-                        Icons.arrow_upward,
-                        formatBytes(widget.totalUp, spaced: true),
-                        cs.primary,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _trafficLine(
+                          Icons.arrow_upward,
+                          formatBytes(widget.totalUp, spaced: true),
+                          cs.primary,
+                        ),
+                        const SizedBox(height: 4),
+                        _trafficLine(
+                          Icons.arrow_downward,
+                          formatBytes(widget.totalDown, spaced: true),
+                          cs.tertiary,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                _metricDivider(cs),
+                // 2. Общий трафик — значение сверху, ↑↓ снизу.
+                Expanded(
+                  child: _stackedMetric(
+                    value: formatBytes(
+                      widget.totalUp + widget.totalDown,
+                      spaced: true,
+                    ),
+                    bottom: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.arrow_upward, color: cs.primary, size: 22),
+                        const SizedBox(width: 10),
+                        Icon(Icons.arrow_downward, color: cs.tertiary, size: 22),
+                      ],
+                    ),
+                  ),
+                ),
+                _metricDivider(cs),
+                // 3. Connections — значение и link сверху, signal снизу.
+                Expanded(
+                  child: _stackedMetric(
+                    valueRow: [
+                      Text(
+                        '${widget.totalConns}',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: cs.secondary,
+                        ),
                       ),
-                      const SizedBox(height: 4),
-                      _trafficLine(
-                        context,
-                        Icons.arrow_downward,
-                        formatBytes(widget.totalDown, spaced: true),
-                        cs.tertiary,
-                      ),
+                      const SizedBox(width: 5),
+                      Icon(Icons.link, color: cs.secondary, size: 22),
                     ],
+                    bottom: Icon(
+                      Icons.signal_cellular_alt,
+                      color: cs.onSurfaceVariant,
+                      size: 22,
+                    ),
+                    onTap: () =>
+                        DefaultTabController.of(context).animateTo(1),
                   ),
                 ),
                 _metricDivider(cs),
-                // Общий трафик: «+» визуально означает сумму ↑ + ↓.
+                // 4. LxBox — значение и memory сверху, database снизу.
                 Expanded(
-                  child: _metric(
-                    context,
-                    Icons.add,
-                    formatBytes(widget.totalUp + widget.totalDown, spaced: true),
-                    cs.onSurfaceVariant,
-                  ),
-                ),
-                _metricDivider(cs),
-                // Тап → вкладка Conns (индекс 1 в DefaultTabController родителя).
-                Expanded(
-                  child: _metric(
-                    context,
-                    Icons.link,
-                    '${widget.totalConns}',
-                    cs.secondary,
-                    onTap: () => DefaultTabController.of(context).animateTo(1),
-                  ),
-                ),
-                _metricDivider(cs),
-                // Подпись LxBox убрана из плашки; по тапу остаётся подробная
-                // информация о памяти процесса.
-                Expanded(
-                  child: _metric(
-                    context,
-                    Icons.memory,
-                    formatBytes(widget.memory, spaced: true),
-                    cs.secondary,
+                  child: _stackedMetric(
+                    valueRow: [
+                      Text(
+                        formatBytes(widget.memory, spaced: true),
+                        maxLines: 1,
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: cs.secondary,
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Icon(Icons.memory, color: cs.secondary, size: 22),
+                    ],
+                    bottom: Icon(
+                      Icons.storage,
+                      color: cs.onSurfaceVariant,
+                      size: 22,
+                    ),
                     onTap: () => showMemoryDetailSheet(
                       context,
                       rss: widget.memory,
@@ -145,7 +181,6 @@ class _OverviewTabState extends State<OverviewTab> {
   }
 
   Widget _trafficLine(
-    BuildContext context,
     IconData icon,
     String value,
     Color color,
@@ -170,61 +205,60 @@ class _OverviewTabState extends State<OverviewTab> {
     );
   }
 
+  Widget _stackedMetric({
+    String? value,
+    List<Widget>? valueRow,
+    required Widget bottom,
+    VoidCallback? onTap,
+  }) {
+    final top = FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: valueRow ??
+            [
+              Text(
+                value ?? '',
+                maxLines: 1,
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+      ),
+    );
+
+    Widget result = Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          top,
+          const SizedBox(height: 8),
+          FittedBox(fit: BoxFit.scaleDown, child: bottom),
+        ],
+      ),
+    );
+
+    if (onTap != null) {
+      result = InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+          child: result,
+        ),
+      );
+    }
+    return result;
+  }
+
   Widget _metricDivider(ColorScheme cs) {
     return Container(
       width: 1,
       height: 48,
       color: cs.outlineVariant,
     );
-  }
-
-  Widget _metric(
-    BuildContext context,
-    IconData icon,
-    String value,
-    Color color, {
-    String? tooltip,
-    VoidCallback? onTap,
-  }) {
-    final content = FittedBox(
-      fit: BoxFit.scaleDown,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: color, size: 22),
-          const SizedBox(width: 5),
-          Text(
-            value,
-            maxLines: 1,
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-
-    Widget result = Center(child: content);
-    if (tooltip != null) {
-      result = Tooltip(
-        message: tooltip,
-        triggerMode: TooltipTriggerMode.longPress,
-        child: result,
-      );
-    }
-    if (onTap != null) {
-      result = InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-          child: result,
-        ),
-      );
-    }
-    return result;
   }
 
   Widget _buildOutboundCard(OutboundGroup group) {
