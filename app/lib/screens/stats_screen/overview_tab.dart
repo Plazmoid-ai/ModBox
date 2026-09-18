@@ -64,19 +64,19 @@ class _OverviewTabState extends State<OverviewTab> {
       children: [
         Card(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 16),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // 1. Upload / Download — две строки, стрелки слева.
+                // 1. Upload / Download.
                 Expanded(
-                  child: Align(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
                     alignment: Alignment.centerLeft,
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         _trafficLine(
                           Icons.arrow_upward,
                           formatBytes(widget.totalUp, spaced: true),
@@ -88,63 +88,122 @@ class _OverviewTabState extends State<OverviewTab> {
                           formatBytes(widget.totalDown, spaced: true),
                           cs.tertiary,
                         ),
-                        ],
-                      ),
+                      ],
                     ),
                   ),
                 ),
                 _metricDivider(cs),
-                // 2. Общий трафик — значение сверху, ↑↓ снизу.
+                // 2. Общий трафик: значение сверху, ↑↓ снизу.
                 Expanded(
                   child: Transform.translate(
                     offset: const Offset(0, 3),
-                    child: _stackedMetric(
-                      value: formatBytes(
-                        widget.totalUp + widget.totalDown,
-                        spaced: true,
-                      ),
-                      bottom: Row(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.arrow_upward, color: cs.primary, size: 20),
-                          const SizedBox(width: 8),
-                          Icon(Icons.arrow_downward, color: cs.tertiary, size: 20),
+                          Text(
+                            formatBytes(
+                              widget.totalUp + widget.totalDown,
+                              spaced: true,
+                            ),
+                            style: TextStyle(
+                              color: cs.secondary,
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.arrow_upward,
+                                color: cs.primary,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 6),
+                              Icon(
+                                Icons.arrow_downward,
+                                color: cs.tertiary,
+                                size: 20,
+                              ),
+                            ],
+                          ),
                         ],
                       ),
                     ),
                   ),
                 ),
                 _metricDivider(cs),
-                // 3. Connections — число сверху, только link снизу.
+                // 3. Connections: число сверху, только link снизу.
                 Expanded(
-                  child: _stackedMetric(
-                    value: '${widget.totalConns}',
-                    bottom: Icon(
-                      Icons.link,
-                      color: cs.secondary,
-                      size: 22,
-                    ),
+                  child: InkWell(
                     onTap: () =>
                         DefaultTabController.of(context).animateTo(1),
+                    borderRadius: BorderRadius.circular(8),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${widget.totalConns}',
+                            style: TextStyle(
+                              color: cs.secondary,
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Icon(
+                            Icons.link,
+                            color: cs.secondary,
+                            size: 24,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
                 _metricDivider(cs),
-                // 4. LxBox — значение сверху, только memory/chip снизу.
+                // 4. LxBox / память: значение сверху, только memory снизу.
                 Expanded(
-                  child: _stackedMetric(
-                    value: formatBytes(widget.memory, spaced: true),
-                    bottom: Icon(
-                      Icons.memory,
-                      color: cs.secondary,
-                      size: 22,
-                    ),
+                  child: Align(
                     alignment: Alignment.centerRight,
-                    onTap: () => showMemoryDetailSheet(
-                      context,
-                      rss: widget.memory,
-                      goroutines: widget.goroutines,
-                      connectionsIn: widget.connectionsIn,
-                      connectionsOut: widget.connectionsOut,
+                    child: InkWell(
+                      onTap: () => showMemoryDetailSheet(
+                        context,
+                        rss: widget.memory,
+                        goroutines: widget.goroutines,
+                        connectionsIn: widget.connectionsIn,
+                        connectionsOut: widget.connectionsOut,
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerRight,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              formatBytes(widget.memory, spaced: true),
+                              maxLines: 1,
+                              style: TextStyle(
+                                color: cs.secondary,
+                                fontSize: 28,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Icon(
+                              Icons.memory,
+                              color: cs.secondary,
+                              size: 24,
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -170,74 +229,21 @@ class _OverviewTabState extends State<OverviewTab> {
     String value,
     Color color,
   ) {
-    return FittedBox(
-      fit: BoxFit.scaleDown,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: color, size: 28),
-          const SizedBox(width: 5),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: color, size: 28),
+        const SizedBox(width: 5),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 28,
+            fontWeight: FontWeight.bold,
+            color: color,
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _stackedMetric({
-    String? value,
-    List<Widget>? valueRow,
-    required Widget bottom,
-    Alignment alignment = Alignment.center,
-    VoidCallback? onTap,
-  }) {
-    final top = FittedBox(
-      fit: BoxFit.scaleDown,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: valueRow ??
-            [
-              Text(
-                value ?? '',
-                maxLines: 1,
-                style: const TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-      ),
-    );
-
-    Widget result = Align(
-      alignment: alignment,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          top,
-          const SizedBox(height: 6),
-          FittedBox(fit: BoxFit.scaleDown, child: bottom),
-        ],
-      ),
-    );
-
-    if (onTap != null) {
-      result = InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-          child: result,
         ),
-      );
-    }
-    return result;
+      ],
+    );
   }
 
   Widget _metricDivider(ColorScheme cs) {
