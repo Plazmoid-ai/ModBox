@@ -29,6 +29,8 @@ class TrafficJournal extends ChangeNotifier {
 
   int _counterBaselineUp = 0;
   int _counterBaselineDown = 0;
+  int _currentUpload = 0;
+  int _currentDownload = 0;
 
   Future<void> start() async {
     if (_started) return;
@@ -38,6 +40,9 @@ class TrafficJournal extends ChangeNotifier {
     _statusSub = CcChannel.instance.status.listen(_onStatus);
     _connectionsSub = CcChannel.instance.connections.listen(_onConnections);
   }
+
+  int get currentUpload => _currentUpload;
+  int get currentDownload => _currentDownload;
 
   int displayedUpload(int current) =>
       current >= _counterBaselineUp ? current - _counterBaselineUp : current;
@@ -70,6 +75,8 @@ class TrafficJournal extends ChangeNotifier {
   }
 
   void _onStatus(CcStatus status) {
+    _currentUpload = status.uplinkTotal;
+    _currentDownload = status.downlinkTotal;
     if (!_loaded) return;
     _rotateIfNeeded();
     final day = _todayDay();
