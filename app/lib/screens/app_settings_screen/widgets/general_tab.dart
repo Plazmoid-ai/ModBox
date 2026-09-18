@@ -1,15 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../main.dart';
 import '../../../services/l10n/locale_controller.dart';
+import 'compact_description_list_tile.dart';
+import 'compact_switch_list_tile.dart';
 import 'update_status_row.dart';
 
 /// General tab для App Settings.
-///
-/// Stateless — все значения и callback'и приходят от
-/// `_AppSettingsScreenState`, который остаётся source-of-truth и делает
-/// setState + side-effect внутри каждого callback'а. Поведение идентично
-/// инлайн-версии (parent rebuild'ит этот widget на каждый setState).
 class GeneralTab extends StatelessWidget {
   const GeneralTab({
     super.key,
@@ -40,8 +38,6 @@ class GeneralTab extends StatelessWidget {
   final bool autoPing;
   final bool haptic;
   final bool allowRotation;
-
-  /// §338 — автоперезапуск VPN при любом изменении конфига (жизнь без плашек).
   final bool autoReloadOnChange;
   final EdgeInsets padding;
 
@@ -53,11 +49,7 @@ class GeneralTab extends StatelessWidget {
   final ValueChanged<bool> onAutoReloadOnChangeChanged;
   final VoidCallback onAddQuickSettingsTile;
   final VoidCallback onOpenBackup;
-
-  /// §425 — регион использования: `auto` | `none` | код страны.
   final String region;
-
-  /// §425 — автоопределённая страна (`''` — не определилась).
   final String detectedRegion;
   final VoidCallback onEditRegion;
 
@@ -93,8 +85,6 @@ class GeneralTab extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        // §279 — выбор языка приложения; смена применяется мгновенно через
-        // LocaleController (полный пайплайн: ARB + template + rebuild).
         Text(getLocalText.s("Language"),
             style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
@@ -108,26 +98,22 @@ class GeneralTab extends StatelessWidget {
                 title: Text(getLocalText.s("System default")),
                 secondary: const Icon(Icons.language),
               ),
-              // Эндонимы: каждая метка на своём языке, сознательно не из ARB
-              // текущей локали.
               const RadioListTile<String>(
                 value: 'en',
-                title: Text('English'), // l10n-exempt: endonym
+                title: Text('English'),
               ),
               const RadioListTile<String>(
                 value: 'ru',
-                title: Text('Русский'), // l10n-exempt: endonym
+                title: Text('Русский'),
               ),
               const RadioListTile<String>(
                 value: 'zh',
-                title: Text('中文（简体）'), // l10n-exempt: endonym
+                title: Text('中文（简体）'),
               ),
             ],
           ),
         ),
         const Divider(height: 32),
-        // §425 — регион использования: общая настройка, потребители — пулы
-        // WARP (loc.<cc>), дальше региональные дефолты правил.
         Text(getLocalText.s("Region"),
             style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
@@ -151,26 +137,22 @@ class GeneralTab extends StatelessWidget {
         Text(getLocalText.s("Behavior"),
             style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        SwitchListTile(
+        CompactSwitchListTile(
           title: Text(getLocalText.s("Auto-start on boot")),
           subtitle: Text(getLocalText.s("Start VPN when device turns on")),
           secondary: const Icon(Icons.power_settings_new),
           value: autoStart,
           onChanged: loaded ? onAutoStartChanged : null,
         ),
-        // §220 — снятие портретной фиксации (планшетный фидбэк). Применяется
-        // сразу, без рестарта; уважает системный auto-rotate.
-        SwitchListTile(
+        const KeepUiOnBackTile(),
+        CompactSwitchListTile(
           title: Text(getLocalText.s("Allow rotation")),
           subtitle: Text(getLocalText.s("Rotate to landscape when the device turns — handy on tablets. Follows the system auto-rotate setting.")),
           secondary: const Icon(Icons.screen_rotation),
           value: allowRotation,
           onChanged: loaded ? onAllowRotationChanged : null,
         ),
-        // §338 — автоприменение изменений конфига к живому туннелю. Настройка
-        // не про подписки: источник изменения любой (узел, detour, DNS,
-        // routing, per-app), поэтому живёт в Behavior, а не в Subscriptions.
-        SwitchListTile(
+        CompactSwitchListTile(
           title: Text(getLocalText.s("Auto-restart VPN on settings change")),
           subtitle: Text(getLocalText.s("Apply every config change to the running tunnel by itself, so no banner is left to tap. Each apply drops the tunnel for about 3 seconds and kills open connections.")),
           secondary: const Icon(Icons.restart_alt),
@@ -191,7 +173,7 @@ class GeneralTab extends StatelessWidget {
         Text(getLocalText.s("Quick connect"),
             style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        ListTile(
+        CompactDescriptionListTile(
           leading: const Icon(Icons.dashboard_customize_outlined),
           title: Text(getLocalText.s("Quick Settings tile")),
           subtitle: Text(getLocalText.s("Add to status-bar shade for one-tap toggle. Android 13+ shows a system prompt; on older versions edit the shade manually.")),
@@ -200,7 +182,7 @@ class GeneralTab extends StatelessWidget {
             child: Text(getLocalText.s("Add")),
           ),
         ),
-        ListTile(
+        CompactDescriptionListTile(
           leading: const Icon(Icons.touch_app_outlined),
           title: Text(getLocalText.s("Home-screen shortcut")),
           subtitle: Text(getLocalText.s("Long-press the L×Box icon on your home screen → choose \"Toggle VPN\".")),
@@ -209,7 +191,7 @@ class GeneralTab extends StatelessWidget {
         Text(getLocalText.s("Updates"),
             style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        SwitchListTile(
+        CompactSwitchListTile(
           title: Text(getLocalText.s("Check for updates on launch")),
           subtitle: Text(getLocalText.s("Pings github.com once a day to check for new releases. \"View\" opens the release page in browser; install is manual.")),
           secondary: const Icon(Icons.system_update_alt),
@@ -221,14 +203,14 @@ class GeneralTab extends StatelessWidget {
         Text(getLocalText.s("Feedback"),
             style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        SwitchListTile(
+        CompactSwitchListTile(
           title: Text(getLocalText.s("Auto-ping after connect")),
           subtitle: Text(getLocalText.s("Ping nodes of active group 5s after VPN starts (once per connect)")),
           secondary: const Icon(Icons.network_ping),
           value: autoPing,
           onChanged: loaded ? onAutoPingChanged : null,
         ),
-        SwitchListTile(
+        CompactSwitchListTile(
           title: Text(getLocalText.s("Haptic feedback")),
           subtitle: Text(getLocalText.s("Vibrate on connect, disconnect and errors. Respects system \"Touch feedback\" setting")),
           secondary: const Icon(Icons.vibration),
@@ -251,7 +233,6 @@ class GeneralTab extends StatelessWidget {
     );
   }
 
-  /// §425 — подпись значения региона для плитки и диалога.
   static String regionLabel(String region, String detected) {
     if (region == 'none') return getLocalText.s("Not set");
     if (region == 'auto') {
@@ -260,5 +241,179 @@ class GeneralTab extends StatelessWidget {
           : getLocalText.s("Auto · %s", detected.toUpperCase());
     }
     return region.toUpperCase();
+  }
+}
+
+class KeepUiOnBackTile extends StatefulWidget {
+  const KeepUiOnBackTile({super.key});
+
+  @override
+  State<KeepUiOnBackTile> createState() => _KeepUiOnBackTileState();
+}
+
+class _KeepUiOnBackTileState extends State<KeepUiOnBackTile> {
+  static const _prefsKey = 'keep_ui_on_back';
+  static const _timerPrefsKey = 'keep_ui_on_back_close_after_minutes';
+  bool _enabled = false;
+  int _minutes = 0;
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _enabled = prefs.getBool(_prefsKey) ?? false;
+      _minutes = prefs.getInt(_timerPrefsKey) ?? 0;
+      _loaded = true;
+    });
+  }
+
+  Future<void> _setEnabled(bool value) async {
+    setState(() => _enabled = value);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefsKey, value);
+  }
+
+  Future<void> _editTimer() async {
+    final initialHours = _minutes <= 0 ? '' : (_minutes ~/ 60).toString();
+    final initialMinutes = _minutes <= 0 ? '' : (_minutes % 60).toString().padLeft(2, '0');
+    final hoursController = TextEditingController(text: initialHours);
+    final minutesController = TextEditingController(text: initialMinutes);
+    String? error;
+
+    final value = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('Автоматическое закрытие интерфейса'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Через сколько времени после выхода закрыть интерфейс:'),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: hoursController,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.next,
+                      maxLength: 2,
+                      decoration: const InputDecoration(
+                        labelText: 'Часы',
+                        hintText: '0',
+                        counterText: '',
+                      ),
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 10),
+                    child: Text(':', style: TextStyle(fontSize: 24)),
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: minutesController,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.done,
+                      maxLength: 2,
+                      decoration: const InputDecoration(
+                        labelText: 'Минуты',
+                        hintText: '00',
+                        counterText: '',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (error != null) ...[
+                const SizedBox(height: 10),
+                Text(error!, style: TextStyle(color: Theme.of(dialogContext).colorScheme.error)),
+              ],
+            ],
+          ),
+          actions: [
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, 0),
+                  child: const Text('Без таймера'),
+                ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('Отмена'),
+                    ),
+                    FilledButton(
+                      onPressed: () {
+                        final hours = int.tryParse(hoursController.text.trim());
+                        final minutes = int.tryParse(minutesController.text.trim());
+                        if (hours == null || hours < 0 || hours > 99) {
+                          setDialogState(() => error = 'Введите часы от 0 до 99.');
+                          return;
+                        }
+                        if (minutes == null || minutes < 0 || minutes > 59) {
+                          setDialogState(() => error = 'Минуты должны быть от 0 до 59.');
+                          return;
+                        }
+                        if (hours == 0 && minutes == 0) {
+                          setDialogState(() => error = 'Укажите время больше 00:00.');
+                          return;
+                        }
+                        Navigator.pop(dialogContext, hours * 60 + minutes);
+                      },
+                      child: const Text('Сохранить'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+
+    hoursController.dispose();
+    minutesController.dispose();
+    if (value == null || !mounted) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_timerPrefsKey, value);
+    setState(() => _minutes = value);
+  }
+
+  String get _timerLabel {
+    if (_minutes <= 0) return 'Таймер не задан';
+    final h = _minutes ~/ 60;
+    final m = _minutes % 60;
+    return 'Закрывать через ${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')} после выхода';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CompactSwitchListTile(
+      leading: null,
+      title: const Text('Сохранять интерфейс при выходе'),
+      subtitle: Text(
+        'Кнопка/жест «Назад» сворачивает приложение вместо закрытия интерфейса.\n$_timerLabel',
+      ),
+      secondary: const Icon(Icons.exit_to_app),
+      value: _enabled,
+      onChanged: _loaded ? _setEnabled : null,
+      beforeSwitch: IconButton(
+        tooltip: 'Таймер',
+        onPressed: _loaded && _enabled ? _editTimer : null,
+        icon: const Icon(Icons.schedule),
+      ),
+    );
   }
 }

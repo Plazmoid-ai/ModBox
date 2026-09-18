@@ -28,6 +28,7 @@ import '../services/settings_storage.dart'
 import '../services/subscription/subscription_identity.dart'
     show generateProxyPassword;
 import 'lazy_persist_mixin.dart';
+import '../widgets/compact_description.dart';
 import '../services/l10n/locale_controller.dart';
 
 class VpnModeTab extends StatefulWidget {
@@ -367,7 +368,7 @@ class _VpnModeTabState extends State<VpnModeTab>
         const SizedBox(height: 8),
         _buildModeSegments(),
         const SizedBox(height: 8),
-        Text(
+        CompactDescription(
           _modeDescription(_cfg.mode),
           style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
         ),
