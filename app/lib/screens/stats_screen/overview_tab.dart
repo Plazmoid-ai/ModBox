@@ -102,11 +102,21 @@ class _OverviewTabState extends State<OverviewTab> {
                   flex: 115,
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
-                    onTap: () => showTrafficJournalSheet(
-                      context,
-                      currentUp: widget.totalUp,
-                      currentDown: widget.totalDown,
-                    ),
+                    onTap: () {
+                      showDialog<void>(
+                        context: context,
+                        builder: (dialogContext) => AlertDialog(
+                          title: const Text('Traffic test'),
+                          content: const Text('Tap works.'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(dialogContext).pop(),
+                              child: const Text('OK'),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                     child: Center(
                       child: FittedBox(
                         fit: BoxFit.scaleDown,
