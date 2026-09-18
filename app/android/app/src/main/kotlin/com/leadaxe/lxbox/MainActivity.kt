@@ -32,6 +32,16 @@ private object ModBoxBackUiTimer {
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private var pending: Runnable? = null
 
+    private fun pendingIntent(context: android.content.Context): android.app.PendingIntent {
+        val intent = android.content.Intent(context, ModBoxBackUiTimerReceiver::class.java)
+        return android.app.PendingIntent.getBroadcast(
+            context,
+            REQUEST_CODE,
+            intent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
     fun schedule(activity: android.app.Activity, delayMs: Long) {
         cancel(activity)
         val delay = delayMs.coerceAtLeast(1000L)
@@ -41,14 +51,35 @@ private object ModBoxBackUiTimer {
         }
         pending = task
         handler.postDelayed(task, delay)
+
+        val alarmManager = activity.getSystemService(android.content.Context.ALARM_SERVICE)
+            as android.app.AlarmManager
+        alarmManager.setAndAllowWhileIdle(
+            android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
+            android.os.SystemClock.elapsedRealtime() + delay,
+            pendingIntent(activity),
+        )
     }
 
     fun cancel(context: android.content.Context) {
         pending?.let(handler::removeCallbacks)
         pending = null
+        val alarmManager = context.getSystemService(android.content.Context.ALARM_SERVICE)
+            as android.app.AlarmManager
+        alarmManager.cancel(pendingIntent(context))
     }
 }
 
+/** AlarmManager fallback for the Back-UI timer. */
+class ModBoxBackUiTimerReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(context: android.content.Context, intent: android.content.Intent?) {
+        val activityManager = context.getSystemService(android.content.Context.ACTIVITY_SERVICE)
+            as android.app.ActivityManager
+        activityManager.appTasks.forEach { task ->
+            runCatching { task.finishAndRemoveTask() }
+        }
+    }
+}
 class MainActivity : FlutterActivity() {
 
     companion object {
