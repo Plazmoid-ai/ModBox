@@ -100,13 +100,13 @@ class _OverviewTabState extends State<OverviewTab> {
                 // 2. Общий трафик — вся секция является зоной нажатия.
                 Expanded(
                   flex: 115,
-                  child: InkWell(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
                     onTap: () => showTrafficJournalSheet(
                       context,
                       currentUp: widget.totalUp,
                       currentDown: widget.totalDown,
                     ),
-                    borderRadius: BorderRadius.circular(8),
                     child: Center(
                       child: FittedBox(
                         fit: BoxFit.scaleDown,
