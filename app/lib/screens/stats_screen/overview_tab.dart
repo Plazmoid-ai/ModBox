@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../services/format_utils.dart';
 import 'memory_detail_sheet.dart';
+import 'traffic_journal_sheet.dart';
 import 'overview_models.dart';
 import '../../services/l10n/locale_controller.dart';
+import '../../services/traffic_journal.dart';
 
 /// Overview tab of StatsScreen; receives data via props on each parent refresh.
 /// `_expanded` is local state of this widget.
@@ -95,48 +97,62 @@ class _OverviewTabState extends State<OverviewTab> {
                 ),
                 _metricDivider(cs),
 
-                // 2. Общий трафик — число сверху, стрелки снизу.
+                // 2. Общий трафик — тап открывает дневной журнал.
                 Expanded(
                   flex: 115,
-                  child: Transform.translate(
-                    offset: const Offset(0, 3),
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            formatBytes(
-                              widget.totalUp + widget.totalDown,
-                              spaced: true,
-                            ),
-                            maxLines: 1,
-                            style: TextStyle(
-                              color: cs.secondary,
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
+                  child: AnimatedBuilder(
+                    animation: TrafficJournal.I,
+                    builder: (context, _) {
+                      final total = TrafficJournal.I.displayedTotal(
+                        widget.totalUp,
+                        widget.totalDown,
+                      );
+                      return InkWell(
+                        onTap: () => showTrafficJournalSheet(
+                          context,
+                          currentUp: widget.totalUp,
+                          currentDown: widget.totalDown,
+                        ),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Transform.translate(
+                          offset: const Offset(0, 3),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  formatBytes(total, spaced: true),
+                                  maxLines: 1,
+                                  style: TextStyle(
+                                    color: cs.secondary,
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.arrow_upward,
+                                      color: cs.primary,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Icon(
+                                      Icons.arrow_downward,
+                                      color: cs.tertiary,
+                                      size: 20,
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(height: 6),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.arrow_upward,
-                                color: cs.primary,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 6),
-                              Icon(
-                                Icons.arrow_downward,
-                                color: cs.tertiary,
-                                size: 20,
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
+                        ),
+                      );
+                    },
                   ),
                 ),
                 _metricDivider(cs),
