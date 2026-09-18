@@ -5183,5 +5183,20 @@
   },
   "Edit JSON": {
     "value": "Править JSON"
+  },
+  "Does not affect the traffic journal": {
+    "value": "Не влияет на журнал трафика"
+  },
+  "No app traffic recorded yet": {
+    "value": "Трафик приложений пока не записан"
+  },
+  "Reset current counter": {
+    "value": "Сбросить текущий счётчик"
+  },
+  "Top applications": {
+    "value": "Топ приложений"
+  },
+  "Traffic today": {
+    "value": "Трафик за сегодня"
   }
 }
