@@ -71,9 +71,12 @@ class _OverviewTabState extends State<OverviewTab> {
                 Expanded(
                   child: Align(
                     alignment: Alignment.centerLeft,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
                         _trafficLine(
                           Icons.arrow_upward,
                           formatBytes(widget.totalUp, spaced: true),
@@ -85,25 +88,29 @@ class _OverviewTabState extends State<OverviewTab> {
                           formatBytes(widget.totalDown, spaced: true),
                           cs.tertiary,
                         ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
                 _metricDivider(cs),
                 // 2. Общий трафик — значение сверху, ↑↓ снизу.
                 Expanded(
-                  child: _stackedMetric(
-                    value: formatBytes(
-                      widget.totalUp + widget.totalDown,
-                      spaced: true,
-                    ),
-                    bottom: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.arrow_upward, color: cs.primary, size: 22),
-                        const SizedBox(width: 10),
-                        Icon(Icons.arrow_downward, color: cs.tertiary, size: 22),
-                      ],
+                  child: Transform.translate(
+                    offset: const Offset(0, 3),
+                    child: _stackedMetric(
+                      value: formatBytes(
+                        widget.totalUp + widget.totalDown,
+                        spaced: true,
+                      ),
+                      bottom: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.arrow_upward, color: cs.primary, size: 20),
+                          const SizedBox(width: 8),
+                          Icon(Icons.arrow_downward, color: cs.tertiary, size: 20),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -131,6 +138,7 @@ class _OverviewTabState extends State<OverviewTab> {
                       color: cs.secondary,
                       size: 22,
                     ),
+                    alignment: Alignment.centerRight,
                     onTap: () => showMemoryDetailSheet(
                       context,
                       rss: widget.memory,
@@ -167,12 +175,12 @@ class _OverviewTabState extends State<OverviewTab> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: color, size: 22),
+          Icon(icon, color: color, size: 28),
           const SizedBox(width: 5),
           Text(
             value,
             style: TextStyle(
-              fontSize: 22,
+              fontSize: 28,
               fontWeight: FontWeight.bold,
               color: color,
             ),
@@ -186,6 +194,7 @@ class _OverviewTabState extends State<OverviewTab> {
     String? value,
     List<Widget>? valueRow,
     required Widget bottom,
+    Alignment alignment = Alignment.center,
     VoidCallback? onTap,
   }) {
     final top = FittedBox(
@@ -198,7 +207,7 @@ class _OverviewTabState extends State<OverviewTab> {
                 value ?? '',
                 maxLines: 1,
                 style: const TextStyle(
-                  fontSize: 22,
+                  fontSize: 28,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -206,12 +215,13 @@ class _OverviewTabState extends State<OverviewTab> {
       ),
     );
 
-    Widget result = Center(
+    Widget result = Align(
+      alignment: alignment,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           top,
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           FittedBox(fit: BoxFit.scaleDown, child: bottom),
         ],
       ),
