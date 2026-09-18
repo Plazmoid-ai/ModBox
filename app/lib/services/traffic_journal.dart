@@ -25,6 +25,7 @@ class TrafficJournal extends ChangeNotifier {
 
   bool _started = false;
   bool _loaded = false;
+  late DateTime _startedAt;
 
   int _counterBaselineUp = 0;
   int _counterBaselineDown = 0;
@@ -32,6 +33,7 @@ class TrafficJournal extends ChangeNotifier {
   Future<void> start() async {
     if (_started) return;
     _started = true;
+    _startedAt = DateTime.now();
     await _load();
     _statusSub = CcChannel.instance.status.listen(_onStatus);
     _connectionsSub = CcChannel.instance.connections.listen(_onConnections);
@@ -88,11 +90,14 @@ class TrafficJournal extends ChangeNotifier {
       );
       final previous = _lastConnections[connection.id];
 
+      final firstSeenAfterStart =
+          connection.createdAt <= 0 ||
+          connection.createdAt >= _startedAt.millisecondsSinceEpoch;
       final deltaUp = previous == null
-          ? current.upload
+          ? (firstSeenAfterStart ? current.upload : 0)
           : _positiveDelta(current.upload, previous.upload);
       final deltaDown = previous == null
-          ? current.download
+          ? (firstSeenAfterStart ? current.download : 0)
           : _positiveDelta(current.download, previous.download);
 
       _lastConnections[connection.id] = current;
