@@ -811,7 +811,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
         if (!didPop) unawaited(_handleSystemBack());
       },
       child: AnimatedBuilder(
-    return AnimatedBuilder(
       animation: Listenable.merge([_controller, _subController]),
       builder: (context, _) {
         // Debug API `POST /action/preview-empty-state?on=true` имитирует
