@@ -190,7 +190,7 @@ class _AppTrafficRow extends StatelessWidget {
 
         final cs = Theme.of(context).colorScheme;
         final fraction =
-            maxTotal == 0 ? 0.0 : (stat.total / maxTotal).clamp(0.0, 1.0);
+            maxTotal == 0 ? 0.0 : (stat.total / maxTotal).clamp(0.0, 1.0).toDouble();
 
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 6),
