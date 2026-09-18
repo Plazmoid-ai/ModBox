@@ -64,24 +64,7 @@ class _OverviewTabState extends State<OverviewTab> {
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () {
-            showDialog<void>(
-              context: context,
-              builder: (dialogContext) => AlertDialog(
-                title: const Text('Traffic test'),
-                content: const Text('Card tap works.'),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(dialogContext).pop(),
-                    child: const Text('OK'),
-                  ),
-                ],
-              ),
-            );
-          },
-          child: Card(
+        Card(
             child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 2),
             child: Row(
@@ -117,23 +100,13 @@ class _OverviewTabState extends State<OverviewTab> {
                 // 2. Общий трафик — вся секция является зоной нажатия.
                 Expanded(
                   flex: 115,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () {
-                      showDialog<void>(
-                        context: context,
-                        builder: (dialogContext) => AlertDialog(
-                          title: const Text('Traffic test'),
-                          content: const Text('Tap works.'),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.of(dialogContext).pop(),
-                              child: const Text('OK'),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
+                  child: InkWell(
+                    onTap: () => showTrafficJournalSheet(
+                      context,
+                      currentUp: widget.totalUp,
+                      currentDown: widget.totalDown,
+                    ),
+                    borderRadius: BorderRadius.circular(8),
                     child: Center(
                       child: FittedBox(
                         fit: BoxFit.scaleDown,
@@ -261,7 +234,6 @@ class _OverviewTabState extends State<OverviewTab> {
               ],
             ),
           ),
-        ),
         ),
         const SizedBox(height: 16),
         Text(getLocalText.s("Traffic by Rule"), style: theme.textTheme.titleMedium),
