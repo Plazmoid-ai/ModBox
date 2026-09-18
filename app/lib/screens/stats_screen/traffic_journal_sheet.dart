@@ -148,7 +148,13 @@ class _TrafficJournalSheet extends StatelessWidget {
                         ),
                       ),
                       onTap: () {
-                        TrafficJournal.I.resetCounter(currentUp, currentDown);
+                        final up = TrafficJournal.I.currentUpload > 0
+                            ? TrafficJournal.I.currentUpload
+                            : currentUp;
+                        final down = TrafficJournal.I.currentDownload > 0
+                            ? TrafficJournal.I.currentDownload
+                            : currentDown;
+                        TrafficJournal.I.resetCounter(up, down);
                       },
                     ),
                   ],
@@ -174,48 +180,53 @@ class _AppTrafficRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     AppInfoCache.ensure(stat.packageName);
-    final info = AppInfoCache.of(stat.packageName);
-    final name = info?.appName.isNotEmpty == true
-        ? info!.appName
-        : stat.packageName;
+    return AnimatedBuilder(
+      animation: AppInfoCache.revision,
+      builder: (context, _) {
+        final info = AppInfoCache.of(stat.packageName);
+        final name = info?.appName.isNotEmpty == true
+            ? info!.appName
+            : stat.packageName;
 
-    final cs = Theme.of(context).colorScheme;
-    final fraction =
-        maxTotal == 0 ? 0.0 : (stat.total / maxTotal).clamp(0.0, 1.0);
+        final cs = Theme.of(context).colorScheme;
+        final fraction =
+            maxTotal == 0 ? 0.0 : (stat.total / maxTotal).clamp(0.0, 1.0);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13),
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    formatBytes(stat.total, spaced: true),
+                    style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Text(
-                formatBytes(stat.total, spaced: true),
-                style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+              const SizedBox(height: 4),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(2),
+                child: LinearProgressIndicator(
+                  value: fraction,
+                  minHeight: 4,
+                  backgroundColor: cs.surfaceContainerHighest,
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(2),
-            child: LinearProgressIndicator(
-              value: fraction,
-              minHeight: 4,
-              backgroundColor: cs.surfaceContainerHighest,
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
