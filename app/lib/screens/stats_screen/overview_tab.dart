@@ -64,11 +64,11 @@ class _OverviewTabState extends State<OverviewTab> {
       children: [
         Card(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 16),
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 2),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // 1. Upload / Download.
+                // 1. Upload / Download — прижато к левому краю.
                 Expanded(
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
@@ -93,7 +93,8 @@ class _OverviewTabState extends State<OverviewTab> {
                   ),
                 ),
                 _metricDivider(cs),
-                // 2. Общий трафик: значение сверху, ↑↓ снизу.
+
+                // 2. Общий трафик — число сверху, стрелки снизу.
                 Expanded(
                   child: Transform.translate(
                     offset: const Offset(0, 3),
@@ -107,6 +108,7 @@ class _OverviewTabState extends State<OverviewTab> {
                               widget.totalUp + widget.totalDown,
                               spaced: true,
                             ),
+                            maxLines: 1,
                             style: TextStyle(
                               color: cs.secondary,
                               fontSize: 28,
@@ -136,7 +138,8 @@ class _OverviewTabState extends State<OverviewTab> {
                   ),
                 ),
                 _metricDivider(cs),
-                // 3. Connections: число сверху, только link снизу.
+
+                // 3. Connections — число сверху, только link снизу.
                 Expanded(
                   child: InkWell(
                     onTap: () =>
@@ -149,6 +152,7 @@ class _OverviewTabState extends State<OverviewTab> {
                         children: [
                           Text(
                             '${widget.totalConns}',
+                            maxLines: 1,
                             style: TextStyle(
                               color: cs.secondary,
                               fontSize: 28,
@@ -167,7 +171,8 @@ class _OverviewTabState extends State<OverviewTab> {
                   ),
                 ),
                 _metricDivider(cs),
-                // 4. LxBox / память: значение сверху, только memory снизу.
+
+                // 4. LxBox / память — прижато к правому краю.
                 Expanded(
                   child: Align(
                     alignment: Alignment.centerRight,
@@ -233,9 +238,10 @@ class _OverviewTabState extends State<OverviewTab> {
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, color: color, size: 28),
-        const SizedBox(width: 5),
+        const SizedBox(width: 4),
         Text(
           value,
+          maxLines: 1,
           style: TextStyle(
             fontSize: 28,
             fontWeight: FontWeight.bold,
