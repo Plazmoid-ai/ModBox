@@ -64,8 +64,25 @@ class _OverviewTabState extends State<OverviewTab> {
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
-        Card(
-          child: Padding(
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            showDialog<void>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                title: const Text('Traffic test'),
+                content: const Text('Card tap works.'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    child: const Text('OK'),
+                  ),
+                ],
+              ),
+            );
+          },
+          child: Card(
+            child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 2),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
@@ -244,6 +261,7 @@ class _OverviewTabState extends State<OverviewTab> {
               ],
             ),
           ),
+        ),
         ),
         const SizedBox(height: 16),
         Text(getLocalText.s("Traffic by Rule"), style: theme.textTheme.titleMedium),
