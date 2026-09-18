@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../controllers/home_controller.dart';
 import '../controllers/subscription_controller.dart';
@@ -117,6 +119,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
   /// §107 single-flight: текущая пересборка конфига. Гейт на Start и
   /// повторные триггеры await'ят её вместо параллельного запуска второй.
   Future<void>? _rebuildInFlight;
+
+  static const _keepUiOnBackPrefsKey = 'keep_ui_on_back';
+  static const _backUiTimerPrefsKey = 'keep_ui_on_back_close_after_minutes';
+  bool _backHandling = false;
 
   /// §338 — авто-применение в полёте: воронка пересобирает при включённой
   /// галке. На это окно (rebuild + reload, ~1–3с) розовая плашка подавляется —
@@ -536,6 +542,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _lifecycle = state;
     if (state == AppLifecycleState.resumed) {
+      unawaited(_cancelBackUiCloseTimer());
+    }
+    if (state == AppLifecycleState.resumed) {
       _controller.onAppResumed();
       _ruleSetAutoUpdater.onAppResumed(); // §366
       // §291 — досмотреть подписки на возврате из фона: periodic-таймер спит
@@ -741,8 +750,67 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
     if (mounted) setState(() {});
   }
 
+  Future<void> _cancelBackUiCloseTimer() async {
+    try {
+      await const MethodChannel('com.leadaxe.lxbox/utils')
+          .invokeMethod<void>('cancelBackUiClose');
+    } catch (_) {}
+  }
+
+  Future<void> _scheduleBackUiCloseTimer() async {
+    final prefs = await SharedPreferences.getInstance();
+    final minutes = prefs.getInt(_backUiTimerPrefsKey) ?? 0;
+    if (minutes <= 0) return;
+    final delayMs = minutes * 60 * 1000;
+    try {
+      await const MethodChannel('com.leadaxe.lxbox/utils').invokeMethod<void>(
+        'scheduleBackUiClose',
+        {'delayMs': delayMs},
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _handleSystemBack() async {
+    if (_backHandling) return;
+    _backHandling = true;
+    try {
+      final navigator = Navigator.of(context);
+      if (navigator.canPop()) {
+        navigator.pop();
+        return;
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      final keepUi = prefs.getBool(_keepUiOnBackPrefsKey) ?? false;
+      if (!mounted) return;
+
+      if (!keepUi) {
+        await SystemNavigator.pop();
+        return;
+      }
+
+      try {
+        await _scheduleBackUiCloseTimer();
+        await const MethodChannel('com.leadaxe.lxbox/utils')
+            .invokeMethod<bool>('moveTaskToBack');
+      } on PlatformException {
+        await SystemNavigator.pop();
+      } catch (_) {
+        await SystemNavigator.pop();
+      }
+    } finally {
+      _backHandling = false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) unawaited(_handleSystemBack());
+      },
+      child: AnimatedBuilder(
     return AnimatedBuilder(
       animation: Listenable.merge([_controller, _subController]),
       builder: (context, _) {
@@ -861,6 +929,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver, Ti
           ),
         );
       },
+      ),
     );
   }
 
