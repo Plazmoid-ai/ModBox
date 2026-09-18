@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../services/format_utils.dart';
 import 'memory_detail_sheet.dart';
+import 'traffic_journal_sheet.dart';
 import 'overview_models.dart';
 import '../../services/l10n/locale_controller.dart';
-import '../../widgets/safe_bottom.dart';
+import '../../services/traffic_journal.dart';
 
 /// Overview tab of StatsScreen; receives data via props on each parent refresh.
 /// `_expanded` is local state of this widget.
@@ -61,32 +62,173 @@ class _OverviewTabState extends State<OverviewTab> {
     final sorted = widget.groups.values.toList()
       ..sort((a, b) => (b.upload + b.download).compareTo(a.upload + a.download));
     return ListView(
-      padding: const EdgeInsets.all(12).withSafeBottom(context),
+      padding: const EdgeInsets.all(12),
       children: [
         Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
+            child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 2),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                _totalChip(context, 'Upload', formatBytes(widget.totalUp, spaced: true), Icons.arrow_upward, cs.primary),
-                _totalChip(context, 'Download', formatBytes(widget.totalDown, spaced: true), Icons.arrow_downward, cs.tertiary),
-                // Тап → вкладка Conns (индекс 1 в DefaultTabController родителя).
-                _totalChip(
-                  context, 'Connections', '${widget.totalConns}', Icons.link, cs.secondary,
-                  onTap: () => DefaultTabController.of(context).animateTo(1),
+                // 1. Upload / Download — прижато к левому краю.
+                Expanded(
+                  flex: 110,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _trafficLine(
+                          Icons.arrow_upward,
+                          formatBytes(widget.totalUp, spaced: true),
+                          cs.primary,
+                        ),
+                        const SizedBox(height: 4),
+                        _trafficLine(
+                          Icons.arrow_downward,
+                          formatBytes(widget.totalDown, spaced: true),
+                          cs.tertiary,
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-                // Подпись — LxBox, а не sing-box: это RSS всего процесса
-                // приложения (ядро в том же процессе), не только ядра. Тап →
-                // попап с разбивкой памяти.
-                _totalChip(
-                  context, 'LxBox', formatBytes(widget.memory, spaced: true), Icons.memory, cs.secondary,
-                  onTap: () => showMemoryDetailSheet(
-                    context,
-                    rss: widget.memory,
-                    goroutines: widget.goroutines,
-                    connectionsIn: widget.connectionsIn,
-                    connectionsOut: widget.connectionsOut,
+                _metricDivider(cs),
+
+                // 2. Общий трафик — вся секция является зоной нажатия.
+                Expanded(
+                  flex: 115,
+                  child: InkWell(
+                    onTap: () => showTrafficJournalSheet(
+                      context,
+                      currentUp: widget.totalUp,
+                      currentDown: widget.totalDown,
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Center(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              formatBytes(
+                                TrafficJournal.I.displayedTotal(
+                                  widget.totalUp,
+                                  widget.totalDown,
+                                ),
+                                spaced: true,
+                              ),
+                              maxLines: 1,
+                              style: TextStyle(
+                                color: cs.secondary,
+                                fontSize: 28,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.arrow_upward,
+                                  color: cs.primary,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 6),
+                                Icon(
+                                  Icons.arrow_downward,
+                                  color: cs.tertiary,
+                                  size: 20,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                _metricDivider(cs),
+
+                // 3. Connections — число сверху, только link снизу.
+                Expanded(
+                  flex: 60,
+                  child: InkWell(
+                    onTap: () =>
+                        DefaultTabController.of(context).animateTo(1),
+                    borderRadius: BorderRadius.circular(8),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Transform.translate(
+                            offset: const Offset(0, 3),
+                            child: Text(
+                              '${widget.totalConns}',
+                              maxLines: 1,
+                              style: TextStyle(
+                                color: cs.secondary,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Icon(
+                            Icons.link,
+                            color: cs.secondary,
+                            size: 24,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                _metricDivider(cs),
+
+                // 4. LxBox / память — прижато к правому краю.
+                Expanded(
+                  flex: 115,
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: InkWell(
+                      onTap: () => showMemoryDetailSheet(
+                        context,
+                        rss: widget.memory,
+                        goroutines: widget.goroutines,
+                        connectionsIn: widget.connectionsIn,
+                        connectionsOut: widget.connectionsOut,
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerRight,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              formatBytes(widget.memory, spaced: true),
+                              maxLines: 1,
+                              style: TextStyle(
+                                color: cs.secondary,
+                                fontSize: 28,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Icon(
+                              Icons.memory,
+                              color: cs.secondary,
+                              size: 28,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -106,45 +248,34 @@ class _OverviewTabState extends State<OverviewTab> {
     );
   }
 
-  Widget _totalChip(
-    BuildContext context,
-    String label,
-    String value,
+  Widget _trafficLine(
     IconData icon,
-    Color color, {
-    VoidCallback? onTap,
-  }) {
-    final chip = Column(
+    String value,
+    Color color,
+  ) {
+    return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, color: color, size: 24),
-        const SizedBox(height: 4),
+        Icon(icon, color: color, size: 28),
+        const SizedBox(width: 4),
         Text(
           value,
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color),
-        ),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(label, style: const TextStyle(fontSize: 11)),
-            // Affordance: интерактивные чипы помечаем стрелкой.
-            if (onTap != null) ...[
-              const SizedBox(width: 2),
-              Icon(Icons.chevron_right, size: 12,
-                  color: Theme.of(context).colorScheme.onSurfaceVariant),
-            ],
-          ],
+          maxLines: 1,
+          style: TextStyle(
+            fontSize: 28,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
         ),
       ],
     );
-    if (onTap == null) return chip;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: chip,
-      ),
+  }
+
+  Widget _metricDivider(ColorScheme cs) {
+    return Container(
+      width: 1,
+      height: 48,
+      color: cs.outlineVariant,
     );
   }
 
