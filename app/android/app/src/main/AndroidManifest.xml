@@ -276,6 +276,10 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".ModBoxBackUiTimerReceiver"
+            android:exported="false" />
+            
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
