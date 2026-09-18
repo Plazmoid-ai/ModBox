@@ -97,62 +97,58 @@ class _OverviewTabState extends State<OverviewTab> {
                 ),
                 _metricDivider(cs),
 
-                // 2. Общий трафик — тап открывает дневной журнал.
+                // 2. Общий трафик — вся секция является зоной нажатия.
                 Expanded(
                   flex: 115,
-                  child: AnimatedBuilder(
-                    animation: TrafficJournal.I,
-                    builder: (context, _) {
-                      final total = TrafficJournal.I.displayedTotal(
-                        widget.totalUp,
-                        widget.totalDown,
-                      );
-                      return InkWell(
-                        onTap: () => showTrafficJournalSheet(
-                          context,
-                          currentUp: widget.totalUp,
-                          currentDown: widget.totalDown,
-                        ),
-                        borderRadius: BorderRadius.circular(8),
-                        child: Transform.translate(
-                          offset: const Offset(0, 3),
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Column(
+                  child: InkWell(
+                    onTap: () => showTrafficJournalSheet(
+                      context,
+                      currentUp: widget.totalUp,
+                      currentDown: widget.totalDown,
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Center(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              formatBytes(
+                                TrafficJournal.I.displayedTotal(
+                                  widget.totalUp,
+                                  widget.totalDown,
+                                ),
+                                spaced: true,
+                              ),
+                              maxLines: 1,
+                              style: TextStyle(
+                                color: cs.secondary,
+                                fontSize: 28,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Text(
-                                  formatBytes(total, spaced: true),
-                                  maxLines: 1,
-                                  style: TextStyle(
-                                    color: cs.secondary,
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                                Icon(
+                                  Icons.arrow_upward,
+                                  color: cs.primary,
+                                  size: 20,
                                 ),
-                                const SizedBox(height: 6),
-                                Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.arrow_upward,
-                                      color: cs.primary,
-                                      size: 20,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Icon(
-                                      Icons.arrow_downward,
-                                      color: cs.tertiary,
-                                      size: 20,
-                                    ),
-                                  ],
+                                const SizedBox(width: 6),
+                                Icon(
+                                  Icons.arrow_downward,
+                                  color: cs.tertiary,
+                                  size: 20,
                                 ),
                               ],
                             ),
-                          ),
+                          ],
                         ),
-                      );
-                    },
+                      ),
+                    ),
                   ),
                 ),
                 _metricDivider(cs),
