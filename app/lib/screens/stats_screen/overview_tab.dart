@@ -96,7 +96,6 @@ class _OverviewTabState extends State<OverviewTab> {
                     Icons.add,
                     formatBytes(widget.totalUp + widget.totalDown, spaced: true),
                     cs.onSurfaceVariant,
-                    tooltip: getLocalText.s("Total traffic"),
                   ),
                 ),
                 _metricDivider(cs),
@@ -107,7 +106,6 @@ class _OverviewTabState extends State<OverviewTab> {
                     Icons.link,
                     '${widget.totalConns}',
                     cs.secondary,
-                    tooltip: getLocalText.s("Connections"),
                     onTap: () => DefaultTabController.of(context).animateTo(1),
                   ),
                 ),
@@ -120,7 +118,6 @@ class _OverviewTabState extends State<OverviewTab> {
                     Icons.memory,
                     formatBytes(widget.memory, spaced: true),
                     cs.secondary,
-                    tooltip: getLocalText.s("LxBox"),
                     onTap: () => showMemoryDetailSheet(
                       context,
                       rss: widget.memory,
