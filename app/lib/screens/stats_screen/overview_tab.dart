@@ -70,6 +70,7 @@ class _OverviewTabState extends State<OverviewTab> {
               children: [
                 // 1. Upload / Download — прижато к левому краю.
                 Expanded(
+                  flex: 110,
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
                     alignment: Alignment.centerLeft,
@@ -96,6 +97,7 @@ class _OverviewTabState extends State<OverviewTab> {
 
                 // 2. Общий трафик — число сверху, стрелки снизу.
                 Expanded(
+                  flex: 115,
                   child: Transform.translate(
                     offset: const Offset(0, 3),
                     child: FittedBox(
@@ -141,6 +143,7 @@ class _OverviewTabState extends State<OverviewTab> {
 
                 // 3. Connections — число сверху, только link снизу.
                 Expanded(
+                  flex: 60,
                   child: InkWell(
                     onTap: () =>
                         DefaultTabController.of(context).animateTo(1),
@@ -150,13 +153,16 @@ class _OverviewTabState extends State<OverviewTab> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
-                            '${widget.totalConns}',
-                            maxLines: 1,
-                            style: TextStyle(
-                              color: cs.secondary,
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
+                          Transform.translate(
+                            offset: const Offset(0, 3),
+                            child: Text(
+                              '${widget.totalConns}',
+                              maxLines: 1,
+                              style: TextStyle(
+                                color: cs.secondary,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                           const SizedBox(height: 8),
@@ -174,6 +180,7 @@ class _OverviewTabState extends State<OverviewTab> {
 
                 // 4. LxBox / память — прижато к правому краю.
                 Expanded(
+                  flex: 115,
                   child: Align(
                     alignment: Alignment.centerRight,
                     child: InkWell(
@@ -204,7 +211,7 @@ class _OverviewTabState extends State<OverviewTab> {
                             Icon(
                               Icons.memory,
                               color: cs.secondary,
-                              size: 24,
+                              size: 28,
                             ),
                           ],
                         ),
