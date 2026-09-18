@@ -100,7 +100,6 @@ class _TrafficJournalSheet extends StatelessWidget {
               const Divider(height: 1),
               Expanded(
                 child: ListView(
-                  controller: scrollController,
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                   children: [
                     Text(
