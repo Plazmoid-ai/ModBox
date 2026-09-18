@@ -130,6 +130,9 @@ class HomeController extends ChangeNotifier
   /// при disconnect чтобы не стрельнул в уже отключённом состоянии.
   @override
   Timer? _autoPingTimer;
+  // Invalidates auto-ping scheduling operations that are still awaiting settings
+  // when the app enters/leaves the background.
+  int _autoPingLifecycleGeneration = 0;
 
   /// Safety-timeout для transient-состояний (Starting/Stopping): если
   /// native застрял дольше порога — форсим disconnected в UI + force-stop
@@ -1519,6 +1522,9 @@ class HomeController extends ChangeNotifier
   /// Event-driven (не polling) — дёргается только на lifecycle resume,
   /// в steady-state ничего не крутится.
   void onAppResumed() {
+    _autoPingLifecycleGeneration++;
+    _autoPingTimer?.cancel();
+    _autoPingTimer = null;
     unawaited(_resyncOnResume());
   }
 
@@ -1533,6 +1539,9 @@ class HomeController extends ChangeNotifier
   /// перезапускает таймер через первый успешный тик? Нет — `_checkHeartbeat`
   /// таймер не создаёт. Поэтому на resume рестартуем явно (см. `_resyncOnResume`).
   void onAppPaused() {
+    _autoPingLifecycleGeneration++;
+    _autoPingTimer?.cancel();
+    _autoPingTimer = null;
     _stopHeartbeat();
     // §286 — folder-probe sweep / auto-ping-таймер переживали фон, т.к.
     // onAppPaused гасил только status+screen-клиенты, и «молотили после
