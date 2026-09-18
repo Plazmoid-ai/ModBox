@@ -27,6 +27,28 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterShellArgs
 import io.flutter.plugin.common.MethodChannel
 
+private object ModBoxBackUiTimer {
+    private const val REQUEST_CODE = 240924
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pending: Runnable? = null
+
+    fun schedule(activity: android.app.Activity, delayMs: Long) {
+        cancel(activity)
+        val delay = delayMs.coerceAtLeast(1000L)
+        val task = Runnable {
+            cancel(activity)
+            activity.finishAndRemoveTask()
+        }
+        pending = task
+        handler.postDelayed(task, delay)
+    }
+
+    fun cancel(context: android.content.Context) {
+        pending?.let(handler::removeCallbacks)
+        pending = null
+    }
+}
+
 class MainActivity : FlutterActivity() {
 
     companion object {
@@ -240,6 +262,22 @@ class MainActivity : FlutterActivity() {
                         } else {
                             BoxApplication.wifiObserver.stop()
                         }
+                        result.success(null)
+                    }
+                    "moveTaskToBack" -> {
+                        result.success(moveTaskToBack(true))
+                    }
+                    "scheduleBackUiClose" -> {
+                        val delayMs = call.argument<Number>("delayMs")?.toLong() ?: 0L
+                        if (delayMs > 0L) {
+                            ModBoxBackUiTimer.schedule(this, delayMs)
+                        } else {
+                            ModBoxBackUiTimer.cancel(this)
+                        }
+                        result.success(null)
+                    }
+                    "cancelBackUiClose" -> {
+                        ModBoxBackUiTimer.cancel(this)
                         result.success(null)
                     }
                     else -> result.notImplemented()
