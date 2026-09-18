@@ -13,7 +13,7 @@ class TrafficJournal extends ChangeNotifier {
   TrafficJournal._();
   static final TrafficJournal I = TrafficJournal._();
 
-  static const _storageKey = 'traffic_journal_v1';
+  static const _storageKey = 'traffic_journal_v2';
 
   StreamSubscription<CcStatus>? _statusSub;
   StreamSubscription<List<CcConnection>>? _connectionsSub;
@@ -31,6 +31,12 @@ class TrafficJournal extends ChangeNotifier {
   int _counterBaselineDown = 0;
   int _currentUpload = 0;
   int _currentDownload = 0;
+
+  // Status snapshots are coalesced on the native side, so per-tick
+  // uplink/downlink values can be skipped. Use cumulative totals instead.
+  bool _statusTotalInitialized = false;
+  int _lastStatusTotalUp = 0;
+  int _lastStatusTotalDown = 0;
 
   Future<void> start() async {
     if (_started) return;
@@ -79,9 +85,29 @@ class TrafficJournal extends ChangeNotifier {
     _currentDownload = status.downlinkTotal;
     if (!_loaded) return;
     _rotateIfNeeded();
+
+    // Do not accumulate status.uplink/downlink: those are interval deltas and
+    // the native SnapshotEmitter may coalesce several status snapshots.
+    // Cumulative totals let us recover the full difference even when snapshots
+    // in between were dropped.
+    if (!_statusTotalInitialized) {
+      _lastStatusTotalUp = status.uplinkTotal;
+      _lastStatusTotalDown = status.downlinkTotal;
+      _statusTotalInitialized = true;
+      _scheduleNotify();
+      return;
+    }
+
+    final deltaUp =
+        _positiveDelta(status.uplinkTotal, _lastStatusTotalUp);
+    final deltaDown =
+        _positiveDelta(status.downlinkTotal, _lastStatusTotalDown);
+    _lastStatusTotalUp = status.uplinkTotal;
+    _lastStatusTotalDown = status.downlinkTotal;
+
     final day = _todayDay();
-    day.upload += status.uplink < 0 ? 0 : status.uplink;
-    day.download += status.downlink < 0 ? 0 : status.downlink;
+    day.upload += deltaUp;
+    day.download += deltaDown;
     _scheduleSave();
     _scheduleNotify();
   }
