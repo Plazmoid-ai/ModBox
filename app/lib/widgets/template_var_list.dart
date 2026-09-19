@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../models/parser_config.dart';
 import 'outbound_picker.dart';
 import 'var_values_model.dart';
+import 'compact_description.dart';
 import '../services/l10n/locale_controller.dart';
 
 /// Рендерит список [WizardVar] с секция-заголовками и типизированными
@@ -176,7 +177,7 @@ class _TemplateVarListViewState extends State<TemplateVarListView> {
         return SwitchListTile(
           title: Text(v.title.isNotEmpty ? v.title : v.name),
           subtitle: v.tooltip.isNotEmpty
-              ? Text(v.tooltip, style: const TextStyle(fontSize: 12))
+              ? CompactDescription(v.tooltip, style: const TextStyle(fontSize: 12))
               : null,
           value: value == 'true',
           onChanged: (val) => _update(v.name, val.toString()),
@@ -331,7 +332,7 @@ class TemplateSectionHeader extends StatelessWidget {
           if (description.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 2),
-              child: Text(
+              child: CompactDescription(
                 description,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -531,7 +532,7 @@ class _LabelledField extends StatelessWidget {
           Text(label, style: theme.textTheme.bodyLarge),
           if (tooltip.isNotEmpty) ...[
             const SizedBox(height: 2),
-            Text(
+            CompactDescription(
               tooltip,
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,

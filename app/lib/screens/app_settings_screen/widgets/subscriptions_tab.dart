@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../services/l10n/locale_controller.dart';
+import 'compact_switch_list_tile.dart';
 
 /// §118 — App Settings → Subscriptions tab. Глобальные настройки HTTP-фетча
 /// подписок: авто-обновление, кастомный User-Agent, HWID + device-meta
@@ -74,14 +75,14 @@ class SubscriptionsTab extends StatelessWidget {
         Text(getLocalText.s("Auto-update"),
             style: theme.textTheme.titleMedium),
         const SizedBox(height: 8),
-        SwitchListTile(
+        CompactSwitchListTile(
           title: Text(getLocalText.s("Auto-update subscriptions")),
           subtitle: Text(getLocalText.s("Refresh on app start, after VPN connects, and periodically. Manual ⟳ works regardless.")),
           secondary: const Icon(Icons.cloud_sync_outlined),
           value: autoUpdateSubs,
           onChanged: loaded ? onAutoUpdateSubsChanged : null,
         ),
-        SwitchListTile(
+        CompactSwitchListTile(
           title: Text(getLocalText.s("Update disabled subscriptions")),
           subtitle: Text(getLocalText.s("Keep the node list of switched-off subscriptions fresh, so it is not stale when you switch one back on. Their nodes stay out of the config either way.")),
           secondary: const Icon(Icons.cloud_off_outlined),
@@ -115,7 +116,7 @@ class SubscriptionsTab extends StatelessWidget {
             style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
           ),
         ),
-        SwitchListTile(
+        CompactSwitchListTile(
           title: Text(getLocalText.s("Send HWID")),
           subtitle: Text(getLocalText.s("Send x-hwid + device headers on every subscription fetch — for panels with HWID device limits (Remnawave). Off by default.")),
           secondary: const Icon(Icons.devices_outlined),
