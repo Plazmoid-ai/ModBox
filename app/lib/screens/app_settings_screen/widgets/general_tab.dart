@@ -190,7 +190,8 @@ class GeneralTab extends StatelessWidget {
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
-        )Text(getLocalText.s("Quick connect"),
+        ),
+        Text(getLocalText.s("Quick connect"),
             style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
         CompactDescriptionListTile(
@@ -206,8 +207,6 @@ class GeneralTab extends StatelessWidget {
           leading: const Icon(Icons.touch_app_outlined),
           title: Text(getLocalText.s("Home-screen shortcut")),
           subtitle: Text(getLocalText.s("Long-press the L×Box icon on your home screen → choose \"Toggle VPN\".")),
-        ),
-        hoose \"Toggle VPN\".")),
         ),
         const Divider(height: 32),
         Text(getLocalText.s("Updates"),
