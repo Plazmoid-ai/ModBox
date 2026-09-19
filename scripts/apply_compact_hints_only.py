@@ -305,13 +305,11 @@ for title in [
     s = s.replace(old, new, 1)
 
 # Keep-ui tile: only its description UI is converted to the compact switch.
-old = '''  @override
-  Widget build(BuildContext context) {
-    return ListTile(
+old = '''    return ListTile(
       leading: const Icon(Icons.exit_to_app),
       title: const Text('Сохранять интерфейс при выходе'),
       subtitle: Text(
-        'Кнопка/жест «Назад» сворачивает приложение вместо закрытия интерфейса.\n$_timerLabel',
+        'Кнопка/жест «Назад» сворачивает приложение вместо закрытия интерфейса.\\n$_timerLabel',
       ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
@@ -328,11 +326,8 @@ old = '''  @override
         ],
       ),
       isThreeLine: _minutes > 0,
-    );
-  }'''
-new = '''  @override
-  Widget build(BuildContext context) {
-    return CompactSwitchListTile(
+    );'''
+new = '''    return CompactSwitchListTile(
       title: const Text('Сохранять интерфейс при выходе'),
       subtitle: Text(
         'Кнопка/жест «Назад» сворачивает приложение вместо закрытия интерфейса.\\n$_timerLabel',
@@ -345,11 +340,7 @@ new = '''  @override
         onPressed: _loaded && _enabled ? _editTimer : null,
         icon: const Icon(Icons.schedule),
       ),
-    );
-  }'''
-if old not in s:
-    raise RuntimeError("KeepUiOnBackTile build target not found")
-s = s.replace(old, new, 1)
+    );'''
 p.write_text(s, encoding="utf-8")
 
 # Diagnostics: compact descriptions for the System setup list tiles.
