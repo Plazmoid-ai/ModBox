@@ -351,33 +351,36 @@ class _KeepUiOnBackTileState extends State<KeepUiOnBackTile> {
             ],
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, 0),
-              child: const Text('Без таймера'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Отмена'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final hours = int.tryParse(hoursController.text.trim());
-                final minutes = int.tryParse(minutesController.text.trim());
-                if (hours == null || hours < 0 || hours > 99) {
-                  setDialogState(() => error = 'Введите часы от 0 до 99.');
-                  return;
-                }
-                if (minutes == null || minutes < 0 || minutes > 59) {
-                  setDialogState(() => error = 'Минуты должны быть от 0 до 59.');
-                  return;
-                }
-                if (hours == 0 && minutes == 0) {
-                  setDialogState(() => error = 'Укажите время больше 00:00.');
-                  return;
-                }
-                Navigator.pop(dialogContext, hours * 60 + minutes);
-              },
-              child: const Text('Сохранить'),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, 0),
+                  child: const Text('Без таймера'),
+                ),
+                const SizedBox(height: 8),
+                FilledButton(
+                  onPressed: () {
+                    final hours = int.tryParse(hoursController.text.trim());
+                    final minutes = int.tryParse(minutesController.text.trim());
+                    if (hours == null || hours < 0 || hours > 99) {
+                      setDialogState(() => error = 'Введите часы от 0 до 99.');
+                      return;
+                    }
+                    if (minutes == null || minutes < 0 || minutes > 59) {
+                      setDialogState(() => error = 'Минуты должны быть от 0 до 59.');
+                      return;
+                    }
+                    if (hours == 0 && minutes == 0) {
+                      setDialogState(() => error = 'Укажите время больше 00:00.');
+                      return;
+                    }
+                    Navigator.pop(dialogContext, hours * 60 + minutes);
+                  },
+                  child: const Text('Применить'),
+                ),
+              ],
             ),
           ],
         ),
